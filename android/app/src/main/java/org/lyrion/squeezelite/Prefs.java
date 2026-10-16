@@ -49,6 +49,7 @@ public class Prefs {
     public static final String START_ON_BOOT_KEY = "start_on_boot";
     public static final String START_ON_BOOT_DELAY_KEY = "start_on_boot_delay";
     public static final String STOP_ON_POWER_OFF_KEY = "stop_on_power_off";
+    public static final String PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY = "pause_on_android_auto_disconnect";
     public static final String AUTOSTART_BT_KEY = "autostart_bt";
     public static final String AUTOSTOP_BT_KEY = "autostop_bt";
     public static final String AUTOSTART_ANDROID_AUTO_KEY = "autostart_android_auto";
@@ -78,6 +79,7 @@ public class Prefs {
     public static boolean DEFAULT_START_ON_BOOT = false;
     public static String DEFAULT_START_ON_BOOT_DELAY = "0";
     public static boolean DEFAULT_STOP_ON_POWER_OFF = true;
+    public static boolean DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT = false;
     public static boolean DEFAULT_SEND_TRACK_DETAILS = true;
     public static boolean DEFAULT_AUDIO_FOCUS = true;
 
@@ -198,6 +200,12 @@ public class Prefs {
                 editor = sharedPreferences.edit();
             }
             editor.putBoolean(STOP_ON_POWER_OFF_KEY, DEFAULT_STOP_ON_POWER_OFF);
+        }
+        if (!sharedPreferences.contains(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putBoolean(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT);
         }
         if (!sharedPreferences.contains(SEND_TRACK_DETAILS_KEY)) {
             if (null==editor) {

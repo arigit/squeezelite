@@ -281,8 +281,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false)) {
-            carConnection = new CarConnection(this, this::stopForegroundService);
+        if (androidAutoSessionAction()!=AndroidAutoSessionAction.NONE) {
+            carConnection = new CarConnection(this, this::androidAutoSessionEnded);
             carConnection.start();
         }
         if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
@@ -381,6 +381,29 @@ public class PlayerService extends MediaBrowserServiceCompat {
             mediaSession.setActive(true);
             nowPlaying = new NowPlaying(this, lib, mediaSession);
             nowPlaying.update();
+        }
+    }
+
+    private AndroidAutoSessionAction androidAutoSessionAction() {
+        SharedPreferences prefs = Prefs.get(this);
+        return AndroidAutoSessionAction.forSettings(
+                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
+                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY,
+                        Prefs.DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT));
+    }
+
+    private void androidAutoSessionEnded() {
+        switch (androidAutoSessionAction()) {
+            case STOP:
+                stopForegroundService();
+                break;
+            case PAUSE:
+                if (lib!=null) {
+                    lib.pause();
+                }
+                break;
+            default:
+                break;
         }
     }
 
