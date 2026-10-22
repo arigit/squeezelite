@@ -49,10 +49,10 @@ public class Prefs {
     public static final String START_ON_BOOT_KEY = "start_on_boot";
     public static final String START_ON_BOOT_DELAY_KEY = "start_on_boot_delay";
     public static final String STOP_ON_POWER_OFF_KEY = "stop_on_power_off";
-    public static final String PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY = "pause_on_android_auto_disconnect";
     public static final String AUTOSTART_BT_KEY = "autostart_bt";
     public static final String AUTOSTOP_BT_KEY = "autostop_bt";
     public static final String AUTOSTART_ANDROID_AUTO_KEY = "autostart_android_auto";
+    public static final String PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY = "pause_on_android_auto_disconnect";
     public static final String BT_MAC_ADDRESSES_KEY = "bt_mac_addresses";
     public static final String USE_BT_ID_KEY = "use_bt_id";
     public static final String SEND_TRACK_DETAILS_KEY = "send_track_details";
@@ -189,6 +189,12 @@ public class Prefs {
             }
             editor.putBoolean(AUTOSTART_ANDROID_AUTO_KEY, false);
         }
+        if (!sharedPreferences.contains(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putBoolean(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT);
+        }
         if (!sharedPreferences.contains(AUTOSTOP_BT_KEY)) {
             if (null==editor) {
                 editor = sharedPreferences.edit();
@@ -200,12 +206,6 @@ public class Prefs {
                 editor = sharedPreferences.edit();
             }
             editor.putBoolean(STOP_ON_POWER_OFF_KEY, DEFAULT_STOP_ON_POWER_OFF);
-        }
-        if (!sharedPreferences.contains(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY)) {
-            if (null==editor) {
-                editor = sharedPreferences.edit();
-            }
-            editor.putBoolean(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT);
         }
         if (!sharedPreferences.contains(SEND_TRACK_DETAILS_KEY)) {
             if (null==editor) {
