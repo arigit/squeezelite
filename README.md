@@ -9,9 +9,11 @@ Features:
 4. Support for Bluetooth media controls
 5. Confgurable bit rate limiting
 
-## Fork Android Auto test builds
+## Squeezelite (ar): fork for Lyrion (ar)
 
-The `arigit` fork's `build/android-auto-apk` branch adds a fork-only APK workflow and application ID so that it can be installed alongside the upstream app. It also contains the opt-in Android Auto disconnect-pause setting. The local development and APK-testing guide is in [docs/android-auto.md](docs/android-auto.md). These fork-only changes are not part of the upstream project or its pull requests.
+This fork is the phone player for [Lyrion (ar)](https://github.com/arigit/lms-material-app), an Android Auto version of the LMS Material app. It is a separate app ("Squeezelite (ar)", `org.lyrion.squeezelite.ar`), so it installs alongside the original, and adds fixes for use in the car (the player can always be started again after it stops; audio focus is given up to another app started after the first seconds of an Android Auto session).
+
+Download the latest `Squeezelite-ar-*.apk` from [Releases](https://github.com/arigit/squeezelite/releases). Setup is described in the [Lyrion (ar) README](https://github.com/arigit/lms-material-app#install); Android Auto testing in [docs/android-auto.md](docs/android-auto.md).
 
 <br>
 

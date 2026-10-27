@@ -11,7 +11,7 @@ For the two APKs to work together, start Squeezelite and select `Squeezelite (ar
 
 ## Test an APK in a Car
 
-These steps are for a person installing the signed APKs from the GitHub Actions artifacts. Android system developer options, USB debugging, Android Studio, and the Desktop Head Unit are not required.
+These steps are for a person installing the signed APKs from the releases ([Lyrion (ar)](https://github.com/arigit/lms-material-app/releases), [Squeezelite (ar)](https://github.com/arigit/squeezelite/releases)). Android system developer options, USB debugging, Android Studio, and the Desktop Head Unit are not required.
 
 1. Install both fork APKs. Their fork-specific application IDs and names allow them to coexist with the upstream apps.
 2. Open `Squeezelite (ar)` on the phone, configure or discover the LMS server, and start the player.

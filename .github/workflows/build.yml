@@ -3,6 +3,8 @@ name: Build APK
 on:
   push:
     branches: [ master, android, build/** ]
+    # A v<versionName> tag (e.g. v0.11.0-ar1) also publishes a GitHub Release with the APK
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -10,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -96,3 +100,20 @@ jobs:
         with:
           name: squeezelite-release
           path: android/app/build/outputs/apk/release/*.apk
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^ *versionName "\(.*\)"/\1/p' android/app/build.gradle)
+          if [ "v$version" != "$TAG" ]; then
+            echo "Tag $TAG does not match versionName $version" >&2
+            exit 1
+          fi
+          apk="Squeezelite-ar-$version.apk"
+          cp android/app/build/outputs/apk/release/*.apk "$apk"
+          gh release create "$TAG" "$apk" --title "Squeezelite (ar) $version" \
+            --notes "Squeezelite (ar) $version: the player for Lyrion (ar), from https://github.com/arigit/lms-material-app/releases - see docs/android-auto.md for setup."
+
