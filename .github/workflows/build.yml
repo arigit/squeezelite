@@ -115,5 +115,5 @@ jobs:
           apk="Squeezelite-ar-$version.apk"
           cp android/app/build/outputs/apk/release/*.apk "$apk"
           gh release create "$TAG" "$apk" --title "Squeezelite (ar) $version" \
-            --notes "Squeezelite (ar) $version: the player for Lyrion (ar), from https://github.com/arigit/lms-material-app/releases - see docs/android-auto.md for setup."
+            --notes "Squeezelite (ar) $version: the player for lms-material-app (ar), from https://github.com/arigit/lms-material-app/releases - see docs/android-auto.md for setup."
 
