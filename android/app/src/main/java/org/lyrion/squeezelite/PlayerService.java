@@ -106,7 +106,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
         super.onCreate();
         Utils.startFileLog(this, "player.log");
         Utils.debug("");
-        // The player starts in onStartCommand, so that Android Auto binding to browse does not start it
+        // The player starts in onStartCommand, so that Android Auto binding to browse does not start it. The
+        // session is needed for browsing though: browsers are only connected once its token is set. It is only
+        // made active while the player runs. Its token can only be set once, and the player can be started
+        // again by the same service.
+        mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
+        setSessionToken(mediaSession.getSessionToken());
     }
 
     @Override
@@ -311,11 +316,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
             audioFocus = new AudioFocus(this, lib, carConnection);
         }
 
-        if (null==mediaSession) {
-            // The session token can only be set once, but the player can be started again by the same service
-            mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
-            setSessionToken(mediaSession.getSessionToken());
-        }
         if (mediaSessionCallback==null) {
             mediaSessionCallback=new MediaSessionCompat.Callback() {
                 @Override
