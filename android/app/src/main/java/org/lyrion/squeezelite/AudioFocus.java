@@ -72,9 +72,10 @@ public class AudioFocus {
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 haveFocus = false;
+                boolean wasPlaying = lib.isPlaying();
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
-                pausedByLoss = mayBeCarStarting();
+                pausedByLoss = wasPlaying && mayBeCarStarting();
                 if (pausedByLoss) {
                     handler.postDelayed(reclaimTask, RECLAIM_DELAY);
                 } else {
@@ -82,9 +83,12 @@ public class AudioFocus {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = true;
-                lib.pause();
+                // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
+                // stopped player starts its playlist from the top.
+                if (lib.isPlaying()) {
+                    pausedByLoss = true;
+                    lib.pause();
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself

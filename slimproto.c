@@ -812,7 +812,14 @@ static void slimproto_run() {
 			if (_sendSTMd) sendSTAT("STMd", 0);
 			if (_sendSTMt) sendSTAT("STMt", 0);
 			if (_sendSTMl) sendSTAT("STMl", 0);
-			if (_sendSTMu) sendSTAT("STMu", 0);
+			if (_sendSTMu) {
+				sendSTAT("STMu", 0);
+#ifdef ANDROID
+				// Playback ran out (end of the playlist): the app would otherwise still think it plays, and keep
+				// audio focus - a call then 'resumed' the player, restarting the playlist.
+				send_playback_state_to_app();
+#endif
+			}
 			if (_sendSTMo) sendSTAT("STMo", 0);
 			if (_sendSTMn) sendSTAT("STMn", 0);
 			if (_sendRESP) sendRESP(header, header_len);
