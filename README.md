@@ -15,7 +15,11 @@ This fork is the phone player for [lms-material-app (ar)](https://github.com/ari
 
 Download the latest `Squeezelite-ar-*.apk` from [Releases](https://github.com/arigit/squeezelite/releases). Setup is described in the [lms-material-app (ar) README](https://github.com/arigit/lms-material-app#install); Android Auto testing in [docs/android-auto.md](docs/android-auto.md).
 
-It builds on the upstream sources: [CDrummond/squeezelite](https://github.com/CDrummond/squeezelite) (the Android port of [ralph-irving/squeezelite](https://github.com/ralph-irving/squeezelite)) and [chrober/squeezelite](https://github.com/chrober/squeezelite/tree/build/android-auto-apk), which added Android Auto support. Once this fork's code has proven fully stable, the plan is to propose merging it upstream.
+It builds on the upstream sources: [CDrummond/squeezelite](https://github.com/CDrummond/squeezelite) (the Android port of [ralph-irving/squeezelite](https://github.com/ralph-irving/squeezelite)) and [chrober/squeezelite](https://github.com/chrober/squeezelite/tree/build/android-auto-apk), which added Android Auto support.
+
+This fork was developed with heavy use of AI (Claude Code): the changes were designed, written and tested with an AI assistant, and checked in the car and with Android Auto's Desktop Head Unit. The car version gets almost daily testing.
+
+Once this fork's code has proven fully stable, the plan is to propose merging it upstream.
 
 <br>
 
