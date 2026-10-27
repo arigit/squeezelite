@@ -35,12 +35,50 @@ import androidx.annotation.RequiresPermission;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationManagerCompat;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 
 public class Utils {
     public static final String LOG_TAG = "SqueezeliteUI";
+    // Debug builds also write the log to a file (and <name>.1), as the phone's log only keeps a few hours. One file
+    // per process: the player service runs in its own.
+    private static final long MAX_LOG_FILE_SIZE = 4 * 1024 * 1024;
+    private static File logFile;
+    private static ExecutorService logExecutor;
+
+    public static synchronized void startFileLog(Context context, String name) {
+        if (BuildConfig.DEBUG && null==logFile) {
+            logFile = new File(context.getFilesDir(), name);
+            logExecutor = Executors.newSingleThreadExecutor();
+        }
+    }
+
+    private static void logToFile(String level, String message, Throwable t) {
+        if (null==logExecutor) {
+            return;
+        }
+        long time = System.currentTimeMillis();
+        String thrown = null==t ? "" : "\n" + Log.getStackTraceString(t);
+        logExecutor.execute(() -> {
+            if (logFile.length() > MAX_LOG_FILE_SIZE) {
+                logFile.renameTo(new File(logFile.getPath() + ".1"));
+            }
+            try (FileWriter writer = new FileWriter(logFile, true)) {
+                writer.write(new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(new Date(time)) +
+                        " " + level + " " + message + thrown + "\n");
+            } catch (IOException ignored) {
+            }
+        });
+    }
 
     static public boolean notificationAllowed(Context context, String channelId) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -180,37 +218,49 @@ public class Utils {
 
     public static void debug(String message) {
         if (BuildConfig.DEBUG) {
-            Log.d(LOG_TAG, logPrefix() + message);
+            String line = logPrefix() + message;
+            Log.d(LOG_TAG, line);
+            logToFile("D", line, null);
         }
     }
 
     public static void info(String message) {
         if (BuildConfig.DEBUG) {
-            Log.i(LOG_TAG, logPrefix() + message);
+            String line = logPrefix() + message;
+            Log.i(LOG_TAG, line);
+            logToFile("I", line, null);
         }
     }
 
     public static void warn(String message) {
         if (BuildConfig.DEBUG) {
-            Log.w(LOG_TAG, logPrefix() + message);
+            String line = logPrefix() + message;
+            Log.w(LOG_TAG, line);
+            logToFile("W", line, null);
         }
     }
 
     public static void warn(String message, Throwable t) {
         if (BuildConfig.DEBUG) {
-            Log.w(LOG_TAG, logPrefix() + message, t);
+            String line = logPrefix() + message;
+            Log.w(LOG_TAG, line, t);
+            logToFile("W", line, t);
         }
     }
 
     public static void error(String message) {
         if (BuildConfig.DEBUG) {
-            Log.e(LOG_TAG, logPrefix() + message);
+            String line = logPrefix() + message;
+            Log.e(LOG_TAG, line);
+            logToFile("E", line, null);
         }
     }
 
     public static void error(String message, Throwable t) {
         if (BuildConfig.DEBUG) {
-            Log.e(LOG_TAG, logPrefix() + message, t);
+            String line = logPrefix() + message;
+            Log.e(LOG_TAG, line, t);
+            logToFile("E", line, t);
         }
     }
 }

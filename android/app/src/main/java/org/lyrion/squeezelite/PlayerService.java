@@ -101,6 +101,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Override
     public void onCreate() {
         super.onCreate();
+        Utils.startFileLog(this, "player.log");
         Utils.debug("");
         // The player starts in onStartCommand, so that Android Auto binding to browse does not start it
     }

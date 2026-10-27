@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Utils.startFileLog(this, "ui.log");
         Utils.info("");
         super.onCreate(savedInstanceState);
 
