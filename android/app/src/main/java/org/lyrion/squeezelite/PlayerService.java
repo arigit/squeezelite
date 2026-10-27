@@ -82,6 +82,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private volatile NowPlaying nowPlaying;
     private volatile AudioFocus audioFocus;
     private volatile CarConnection carConnection;
+    private final Object stopLock = new Object();
     private boolean started = false;
 
     // stopService() is not enough, as Android Auto can keep the service bound and so alive
@@ -432,33 +433,38 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
+    // The connection-lost timer stops the service on its executor thread, and onDestroy() then stops it again on
+    // the main thread: without the lock both released the same objects at once ("Receiver not registered").
+    // Not the service's own lock, which updateNotification() takes from the player thread stopPlayer() waits for.
     private void stopPlayer() {
-        if (null==lib) {
-            return;
-        }
-        if (null!=wakeLock) {
-            wakeLock.release();
-            wakeLock = null;
-        }
-        sendStatus(false);
-        stopTerminateTimer();
-        if (null!=nowPlaying) {
-            nowPlaying.release();
-            nowPlaying = null;
-        }
-        if (null!=audioFocus) {
-            audioFocus.release();
-            audioFocus = null;
-        }
-        if (null!=carConnection) {
-            carConnection.release();
-            carConnection = null;
-        }
-        lib.stopPlayer(this);
-        // A new start gets a new one, as its state (e.g. the initial power on) is per start
-        lib = null;
-        if (mediaSession != null) {
-            mediaSession.setActive(false);
+        synchronized (stopLock) {
+            if (null==lib) {
+                return;
+            }
+            if (null!=wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+            sendStatus(false);
+            stopTerminateTimer();
+            if (null!=nowPlaying) {
+                nowPlaying.release();
+                nowPlaying = null;
+            }
+            if (null!=audioFocus) {
+                audioFocus.release();
+                audioFocus = null;
+            }
+            if (null!=carConnection) {
+                carConnection.release();
+                carConnection = null;
+            }
+            lib.stopPlayer(this);
+            // A new start gets a new one, as its state (e.g. the initial power on) is per start
+            lib = null;
+            if (mediaSession != null) {
+                mediaSession.setActive(false);
+            }
         }
     }
 
