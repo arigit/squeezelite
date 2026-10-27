@@ -37,6 +37,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.view.KeyEvent;
 
@@ -69,6 +70,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private final Handler handler;
     private PowerManager.WakeLock wakeLock = null;
     private Library lib = null;
+    private static final String MEDIA_ROOT_ID = "root";
+    private static final String MEDIA_INFO_ID = "info";
     private int initialConnectionTimeout = 0;
     private int connectionLostTimeout = 0;
     private final ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -123,15 +126,24 @@ public class PlayerService extends MediaBrowserServiceCompat {
         return super.onBind(intent);
     }
 
-    // Android Auto only shows media apps it can browse, so offer it an empty library
+    // Android Auto only shows media apps it can browse, so offer it a library that just says where to browse
     @Override
     public BrowserRoot onGetRoot(String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
-        return new BrowserRoot("root", null);
+        return new BrowserRoot(MEDIA_ROOT_ID, null);
     }
 
     @Override
     public void onLoadChildren(String parentId, Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.sendResult(new ArrayList<>());
+        List<MediaBrowserCompat.MediaItem> items = new ArrayList<>();
+        if (MEDIA_ROOT_ID.equals(parentId)) {
+            MediaDescriptionCompat description = new MediaDescriptionCompat.Builder()
+                    .setMediaId(MEDIA_INFO_ID)
+                    .setTitle(getString(R.string.android_auto_playback_only))
+                    .setSubtitle(getString(R.string.android_auto_browse_hint))
+                    .build();
+            items.add(new MediaBrowserCompat.MediaItem(description, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+        }
+        result.sendResult(items);
     }
 
     @Override

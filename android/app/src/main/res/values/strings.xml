@@ -59,4 +59,6 @@
     <string name="use_opensles_summary">Always use OpenSL ES for audio output</string>
     <string name="audio_focus">Use audio focus</string>
     <string name="audio_focus_summary">Take Android audio focus whilst playing, and pause when another app (e.g. a phone call) takes it. Required for sound to be sent to Android Auto</string>
+    <string name="android_auto_playback_only">Squeezelite is for playback only.</string>
+    <string name="android_auto_browse_hint">Browse music using a Lyrion controller.</string>
 </resources>
