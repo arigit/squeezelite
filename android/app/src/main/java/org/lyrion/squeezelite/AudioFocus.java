@@ -35,8 +35,9 @@ import android.os.SystemClock;
  */
 public class AudioFocus {
     private static final long RECLAIM_DELAY = 1500;
-    // A loss later than this into a car session is another app
-    private static final long STARTUP_WINDOW = 60000;
+    // A loss later than this into a car session is another app. Android Auto takes focus as the session
+    // starts (seen: at once, and again 9s later); a podcast app started after this pauses the player.
+    private static final long STARTUP_WINDOW = 15000;
 
     private final Context context;
     private final AudioManager audioManager;

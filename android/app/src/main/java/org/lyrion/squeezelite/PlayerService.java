@@ -289,11 +289,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        if (androidAutoSessionAction()!=AndroidAutoSessionAction.NONE) {
+        boolean useAudioFocus = Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
+        // Audio focus needs it too, to tell Android Auto starting up from another app taking focus
+        if (useAudioFocus || androidAutoSessionAction()!=AndroidAutoSessionAction.NONE) {
             carConnection = new CarConnection(this, this::androidAutoSessionEnded);
             carConnection.start();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
+        if (useAudioFocus) {
             audioFocus = new AudioFocus(this, lib, carConnection);
         }
 
