@@ -81,6 +81,7 @@ public class Library {
     private int pendingLmsVolume = UNKNOWN_VOL;
     private int maxBitrate = 0;
     private boolean forgetOnStop = false;
+    private static final long FORGET_TIMEOUT = 3000;
     private volatile PlayerService service;
     private VolumeChangeObserver observer;
     private AudioManager audioManager;
@@ -238,6 +239,12 @@ public class Library {
                 System.exit(0);
             });
             jsonRpc = null;
+            // No response comes if the server can't be reached (e.g. the player was stopped as its connection was
+            // lost), and the process would be left running with its player stopped
+            handler.postDelayed(() -> {
+                Utils.debug("No 'forget' resp");
+                System.exit(0);
+            }, FORGET_TIMEOUT);
         } else {
             System.exit(0);
         }

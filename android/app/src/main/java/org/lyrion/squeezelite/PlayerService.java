@@ -110,6 +110,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         super.onDestroy();
         Utils.debug("");
         stopForegroundService();
+        if (mediaSession != null) {
+            mediaSession.release();
+            mediaSession = null;
+        }
     }
 
     @Nullable
@@ -256,6 +260,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
     private void stopForegroundService() {
         Utils.debug("");
+        // Something bound to the service (e.g. Android Auto browsing it) keeps it alive after stopSelf(), and
+        // then the next start command has to start the player again
+        started = false;
         stopForeground(true);
         stopSelf();
         stopPlayer();
@@ -289,8 +296,11 @@ public class PlayerService extends MediaBrowserServiceCompat {
             audioFocus = new AudioFocus(this, lib, carConnection);
         }
 
-        mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
-        setSessionToken(mediaSession.getSessionToken());
+        if (null==mediaSession) {
+            // The session token can only be set once, but the player can be started again by the same service
+            mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
+            setSessionToken(mediaSession.getSessionToken());
+        }
         if (mediaSessionCallback==null) {
             mediaSessionCallback=new MediaSessionCompat.Callback() {
                 @Override
@@ -430,9 +440,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
             carConnection = null;
         }
         lib.stopPlayer(this);
+        // A new start gets a new one, as its state (e.g. the initial power on) is per start
+        lib = null;
         if (mediaSession != null) {
             mediaSession.setActive(false);
-            mediaSession.release();
         }
     }
 
