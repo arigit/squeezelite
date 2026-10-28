@@ -232,6 +232,16 @@ JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_start(JNIEnv *env, jo
 			output_buf_size *= scale;
 		}
 	}
+	// With a large stream buffer (64 MB and up) also decode further ahead: LMS only sends the next track once the
+	// current one is fully decoded, which the default output buffer allows ~10 s (44.1 kHz) or ~2.3 s (192 kHz)
+	// before its end, so a network dropout at a track change still interrupted playback. 30 s of 192 kHz audio
+	// (46 MB) has the next track sent at least that early.
+	if (buffer_size >= 64) {
+		unsigned ahead = 192000 * BYTES_PER_FRAME * 30;
+		if (output_buf_size < ahead) {
+			output_buf_size = ahead;
+		}
+	}
 
 	stream_init(log_stream, stream_buf_size);
 
