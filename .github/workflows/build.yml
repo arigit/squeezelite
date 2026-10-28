@@ -114,6 +114,10 @@ jobs:
           fi
           apk="Squeezelite-ar-$version.apk"
           cp android/app/build/outputs/apk/release/*.apk "$apk"
+          controllers=https://github.com/arigit/lms-material-app/releases
+          ctag=$(gh release view -R arigit/lms-material-app --json tagName -q .tagName)
           gh release create "$TAG" "$apk" --title "Squeezelite (ar) $version" \
-            --notes "Squeezelite (ar) $version: the player for lms-material-app (ar), from https://github.com/arigit/lms-material-app/releases - see docs/android-auto.md for setup."
+            --notes "Squeezelite (ar) $version: the player for lms-material-app (ar), from $controllers - see docs/android-auto.md for setup.
+
+          Its controller at the time: [lms-material-app (ar) ${ctag#v}]($controllers/tag/$ctag). Newest lms-material-app (ar): $controllers/latest"
 
