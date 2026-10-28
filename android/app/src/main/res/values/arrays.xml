@@ -66,12 +66,12 @@
     </string-array>
     <string-array name="buffer">
         <item>Default</item>
-        <item>4 Mb</item>
-        <item>8 Mb</item>
-        <item>16 Mb</item>
-        <item>32 Mb</item>
-        <item>64 Mb</item>
-        <item>128 Mb</item>
+        <item>4 MB</item>
+        <item>8 MB</item>
+        <item>16 MB</item>
+        <item>32 MB</item>
+        <item>64 MB (+46 MB next-track buffer)</item>
+        <item>128 MB (+46 MB next-track buffer)</item>
     </string-array>
     <string-array name="bufferAlias" translatable="false">
         <item>0</item>

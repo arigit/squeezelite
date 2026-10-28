@@ -38,8 +38,8 @@
         <item>8 Мб</item>
         <item>16 Мб</item>
         <item>32 Мб</item>
-        <item>64 Мб</item>
-        <item>128 Мб</item>
+        <item>64 Мб (+46 Мб для наступного треку)</item>
+        <item>128 Мб (+46 Мб для наступного треку)</item>
     </string-array>
     <string-array name="rateLimitWhen">
         <item>Завжди</item>
