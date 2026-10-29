@@ -135,6 +135,32 @@ void send_playback_state_to_app(void) {
 	}
 }
 
+void send_log_to_app(const char *message) {
+	if (!jvm || !obj || !clazz) {
+		return;
+	}
+	JNIEnv *env;
+	bool detached = JNI_EDETACHED == (*jvm)->GetEnv(jvm, &env, JNI_VERSION_1_6);
+	if (detached) {
+		if (JNI_OK!=(*jvm)->AttachCurrentThread(jvm, &env, NULL)) {
+			LOG_ERROR("Failed to get attach current thread");
+			return;
+		}
+	}
+	jmethodID method = (*env)->GetMethodID(env, clazz, "nativeLog", "(Ljava/lang/String;)V");
+	if (method) {
+		jstring jStr = (*env)->NewStringUTF(env, message);
+		(*env)->CallVoidMethod(env, obj, method, jStr);
+		(*env)->DeleteLocalRef(env, jStr);
+	} else {
+		(*env)->ExceptionClear(env);
+		LOG_ERROR("nativeLog not found");
+	}
+	if (detached) {
+		(*jvm)->DetachCurrentThread(jvm);
+	}
+}
+
 void send_connection_state_to_app(const char *address) {
 	if (!jvm || !obj || !clazz) {
 		return;

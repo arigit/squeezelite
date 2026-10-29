@@ -479,6 +479,7 @@ extern void send_output_state_to_app(u8_t spdif, u8_t dac);
 extern void send_volume_to_app(u32_t left, u32_t right);
 extern void send_connection_state_to_app(const char *address);
 extern void send_playback_state_to_app(void);
+extern void send_log_to_app(const char *message);
 extern char * get_ip_str(const struct sockaddr *sa);
 #else
 const char *logtime(void);
@@ -684,6 +685,11 @@ struct outputstate {
 	bool  pa_reopen;
 	unsigned latency;
 	int pa_hostapi_option;
+#endif
+#ifdef ANDROID
+	unsigned underruns;       // times the output buffer ran dry while a track was still playing in
+	unsigned underrun_frames; // silence played because of it
+	bool underrun_padding;    // the last callback padded with silence
 #endif
 	int (* write_cb)(frames_t out_frames, bool silence, s32_t gainL, s32_t gainR, u8_t flags, s32_t cross_gain_in, s32_t cross_gain_out, s32_t **cross_ptr);
 	unsigned start_frames;

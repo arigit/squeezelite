@@ -163,6 +163,46 @@ static void sendHELO(bool reconnect, const char *fixed_cap, const char *var_cap,
 	send_packet((u8_t *)var_cap, strlen(var_cap));
 }
 
+#ifdef ANDROID
+extern volatile int32_t PaAAudio_xruns;
+
+// Log gaps in the output to the app (player.log), at most once a second: they are heard as short audio cuts. Either
+// squeezelite's output buffer ran dry (decoding or the network too slow), or Android's audio device did (AAudio
+// underrun: squeezelite's callback came too late).
+static void log_underruns(u32_t now, unsigned underruns, unsigned underrun_frames, decode_state decode_state) {
+	static unsigned last_underruns = 0, last_frames = 0;
+	static int32_t last_xruns = 0;
+	static u32_t last_log = 0;
+	char message[256];
+
+	if (underruns < last_underruns || underrun_frames < last_frames) {
+		// The player was started again in the same process: the output state starts from 0.
+		last_underruns = last_frames = 0;
+	}
+	if (now - last_log < 1000 && now >= last_log) {
+		return;
+	}
+	int32_t xruns = PaAAudio_xruns < 0 ? 0 : PaAAudio_xruns;
+	// The count starts again with each AAudio stream (opened per sample rate).
+	int32_t new_xruns = xruns >= last_xruns ? xruns - last_xruns : xruns;
+	last_xruns = xruns;
+	if (underruns == last_underruns && 0 == new_xruns) {
+		return;
+	}
+	unsigned silence_ms = status.current_sample_rate ? (unsigned)((u64_t)(underrun_frames - last_frames) * 1000 / status.current_sample_rate) : 0;
+	snprintf(message, sizeof(message), "Output underrun: %u gap(s), %u ms silence; AAudio underruns: %d; "
+			 "output buffer %u/%u KB, stream buffer %u/%u KB, stream state %d, decode state %d, rate %u",
+			 underruns - last_underruns, silence_ms, (int)new_xruns,
+			 status.output_full / 1024, status.output_size / 1024, status.stream_full / 1024, status.stream_size / 1024,
+			 (int)status.stream_state, (int)decode_state, status.current_sample_rate);
+	last_underruns = underruns;
+	last_frames = underrun_frames;
+	last_log = now;
+	LOG_WARN("%s", message);
+	send_log_to_app(message);
+}
+#endif
+
 static void sendSTAT(const char *event, u32_t server_timestamp) {
 	struct STAT_packet pkt;
 	u32_t now = gettime_ms();
@@ -674,6 +714,9 @@ static void slimproto_run() {
 			bool _start_output = false;
 			decode_state _decode_state;
 			disconnect_code disconnect_code;
+#ifdef ANDROID
+			unsigned _underruns, _underrun_frames;
+#endif
 			static char header[MAX_HEADER];
 			size_t header_len = 0;
 #if IR
@@ -741,6 +784,10 @@ static void slimproto_run() {
 			status.current_sample_rate = output.current_sample_rate;
 			status.updated = output.updated;
 			status.device_frames = output.device_frames;
+#ifdef ANDROID
+			_underruns = output.underruns;
+			_underrun_frames = output.underrun_frames;
+#endif
 			
 			if (output.track_started) {
 				_sendSTMs = true;
@@ -799,6 +846,9 @@ static void slimproto_run() {
 #endif
 
 			if (_stream_disconnect) stream_disconnect();
+#ifdef ANDROID
+			log_underruns(now, _underruns, _underrun_frames, _decode_state);
+#endif
 
 			// send packets once locks released as packet sending can block
 			if (_sendDSCO) sendDSCO(disconnect_code);

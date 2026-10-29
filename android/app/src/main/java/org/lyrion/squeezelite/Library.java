@@ -386,6 +386,12 @@ public class Library {
         isInitialPower = false;
     }
 
+    // Called from C code with something worth having in the log file, e.g. output underruns (audio cuts).
+    @Keep
+    public void nativeLog(String message) {
+        Utils.warn(message);
+    }
+
     // Called from C code when a track starts, or playback is paused, resumed, or stopped.
     // 'playing' is whether the player is (about to be) outputting audio.
     @Keep
