@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     branches: [ master, android, build/** ]
-    # A v<versionName> tag (e.g. v0.11.0-ar1) also publishes a GitHub Release with the APK
+    # A v<versionName> tag (e.g. v0.11.0-ar.0.1) also publishes a GitHub Release with the APK
     tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
@@ -112,7 +112,7 @@ jobs:
             echo "Tag $TAG does not match versionName $version" >&2
             exit 1
           fi
-          apk="Squeezelite-ar-$version.apk"
+          apk="squeezelite-ar-$version.apk"
           cp android/app/build/outputs/apk/release/*.apk "$apk"
           controllers=https://github.com/arigit/lms-material-app/releases
           ctag=$(gh release view -R arigit/lms-material-app --json tagName -q .tagName)
