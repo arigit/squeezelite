@@ -1,8 +1,9 @@
 <h1>Squeezelite for Android</h1>
 
-This is a fork of:
+This fork extends the great work of:
+
   - [CDrummond/squeezelite](https://github.com/CDrummond/squeezelite) (original squeezelite)
-  - [chrober/squeezelite](https://github.com/chrober/squeezelite/tree/build/android-auto-apk) (which added Android Auto support)
+  - [chrober/squeezelite](https://github.com/chrober/squeezelite/tree/build/android-auto-apk) (inital Android Auto support)
     
 This forks contains changes to improve the android-auto user experience, and small fixes - including:
  - support for larger buffer options (64MB, 128MB) and for next-song buffering, meant to decrease risk of audio drops while streaming over cellular
