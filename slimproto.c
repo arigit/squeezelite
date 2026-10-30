@@ -852,6 +852,11 @@ static void slimproto_run() {
 
 			// send packets once locks released as packet sending can block
 			if (_sendDSCO) sendDSCO(disconnect_code);
+#ifdef ANDROID
+			// The stream broke off (e.g. the network changed). Reported now that LMS is reachable again: DSCO is only
+			// sent while connected.
+			if (_sendDSCO && REMOTE_DISCONNECT == disconnect_code) send_stream_cut_to_app(status.stream_bytes);
+#endif
 			if (_sendSTMs) {
 				sendSTAT("STMs", 0);
 #ifdef ANDROID

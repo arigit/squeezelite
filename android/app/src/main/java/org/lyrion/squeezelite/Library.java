@@ -392,6 +392,18 @@ public class Library {
         Utils.warn(message);
     }
 
+    // Called from C code when the stream broke off before its end, e.g. when the network changed while streaming
+    // (also while paused: the stream fills the buffer then). Squeezelite would play what it has, report the track
+    // as fully decoded, and LMS would move on to the next track that far into it (heard as a cut). Seeking to the
+    // current position makes LMS stream the track again from there; a paused player stays paused.
+    @Keep
+    public void streamCut(long bytes) {
+        Utils.warn("Stream cut off after " + bytes + " bytes, streaming again from the current position");
+        if (null!=jsonRpc) {
+            jsonRpc.sendMessage(new String[]{"time", "+0"});
+        }
+    }
+
     // Called from C code when a track starts, or playback is paused, resumed, or stopped.
     // 'playing' is whether the player is (about to be) outputting audio.
     @Keep

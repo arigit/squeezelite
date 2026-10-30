@@ -480,6 +480,7 @@ extern void send_volume_to_app(u32_t left, u32_t right);
 extern void send_connection_state_to_app(const char *address);
 extern void send_playback_state_to_app(void);
 extern void send_log_to_app(const char *message);
+extern void send_stream_cut_to_app(u64_t bytes);
 extern char * get_ip_str(const struct sockaddr *sa);
 #else
 const char *logtime(void);

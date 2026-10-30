@@ -161,6 +161,30 @@ void send_log_to_app(const char *message) {
 	}
 }
 
+void send_stream_cut_to_app(u64_t bytes) {
+	if (!jvm || !obj || !clazz) {
+		return;
+	}
+	JNIEnv *env;
+	bool detached = JNI_EDETACHED == (*jvm)->GetEnv(jvm, &env, JNI_VERSION_1_6);
+	if (detached) {
+		if (JNI_OK!=(*jvm)->AttachCurrentThread(jvm, &env, NULL)) {
+			LOG_ERROR("Failed to get attach current thread");
+			return;
+		}
+	}
+	jmethodID method = (*env)->GetMethodID(env, clazz, "streamCut", "(J)V");
+	if (method) {
+		(*env)->CallVoidMethod(env, obj, method, (jlong)bytes);
+	} else {
+		(*env)->ExceptionClear(env);
+		LOG_ERROR("streamCut not found");
+	}
+	if (detached) {
+		(*jvm)->DetachCurrentThread(jvm);
+	}
+}
+
 void send_connection_state_to_app(const char *address) {
 	if (!jvm || !obj || !clazz) {
 		return;
