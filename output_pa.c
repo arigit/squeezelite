@@ -541,10 +541,23 @@ static int pa_callback(void *pa_input, void *pa_output, unsigned long pa_frames_
 	output.updated = gettime_ms();
 	output.frames_played_dmp = output.frames_played;
 
-	do {
-		frames = _output_frames(pa_frames_wanted);
-		pa_frames_wanted -= frames;
-	} while (pa_frames_wanted > 0 && frames != 0);
+	{
+		bool retried = false;
+		while (pa_frames_wanted > 0) {
+			bool started = output.track_started;
+			frames = _output_frames(pa_frames_wanted);
+			pa_frames_wanted -= frames;
+			if (frames == 0) {
+				// A track start right at the read position returns 0 frames: carry on with the new track instead of
+				// padding the rest of this callback with silence (~21 ms at 192 kHz at some gapless track changes).
+				if (!retried && !started && output.track_started) {
+					retried = true;
+					continue;
+				}
+				break;
+			}
+		}
+	}
 
 	if (pa_frames_wanted > 0) {
 		LOG_DEBUG("pad with silence");
