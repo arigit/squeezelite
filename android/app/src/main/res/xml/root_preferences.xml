@@ -200,6 +200,12 @@
             app:summary="@string/pause_on_android_auto_disconnect_summary"
             app:title="@string/pause_on_android_auto_disconnect"
             app:singleLineTitle="false"/>
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="pause_on_android_auto_connect"
+            app:summary="@string/pause_on_android_auto_connect_summary"
+            app:title="@string/pause_on_android_auto_connect"
+            app:singleLineTitle="false"/>
     </PreferenceCategory>
 
 </PreferenceScreen>

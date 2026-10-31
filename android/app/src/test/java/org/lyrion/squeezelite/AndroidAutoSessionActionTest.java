@@ -6,22 +6,22 @@ import static org.junit.Assert.assertEquals;
 
 public class AndroidAutoSessionActionTest {
     @Test
-    public void stopsWhenAndroidAutoAutostartIsEnabled() {
-        assertEquals(AndroidAutoSessionAction.STOP,
-                AndroidAutoSessionAction.forSettings(true, true));
-        assertEquals(AndroidAutoSessionAction.STOP,
-                AndroidAutoSessionAction.forSettings(true, false));
+    public void resumesWhenNeitherAndroidAutoOptionIsEnabled() {
+        assertEquals(AndroidAutoSessionAction.RESUME,
+                AndroidAutoSessionAction.forSettings(false, false));
     }
 
     @Test
-    public void pausesWhenOnlyPauseOnDisconnectIsEnabled() {
+    public void pausesWhenPauseOnSessionChangeIsEnabled() {
         assertEquals(AndroidAutoSessionAction.PAUSE,
                 AndroidAutoSessionAction.forSettings(false, true));
     }
 
     @Test
-    public void doesNothingWhenNeitherSettingIsEnabled() {
-        assertEquals(AndroidAutoSessionAction.NONE,
-                AndroidAutoSessionAction.forSettings(false, false));
+    public void stopsWhenAndroidAutoAutostartIsEnabled() {
+        assertEquals(AndroidAutoSessionAction.STOP,
+                AndroidAutoSessionAction.forSettings(true, false));
+        assertEquals(AndroidAutoSessionAction.STOP,
+                AndroidAutoSessionAction.forSettings(true, true));
     }
 }

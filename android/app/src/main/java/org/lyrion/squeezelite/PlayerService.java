@@ -314,14 +314,28 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        boolean useAudioFocus = Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
+        SharedPreferences prefs = Prefs.get(this);
+        // Separate settings: e.g. a controller (Lyrion) may start playback as the car connects, which needs Android
+        // Auto's focus grab at startup reclaimed, but playback still paused when the car disconnects
+        boolean pauseOnAndroidAutoConnect = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
+        AndroidAutoSessionAction androidAutoSessionAction = AndroidAutoSessionAction.forSettings(
+                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
+                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
+        boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
         // Audio focus needs it too, to tell Android Auto starting up from another app taking focus
-        if (useAudioFocus || androidAutoSessionAction()!=AndroidAutoSessionAction.NONE) {
-            carConnection = new CarConnection(this, this::androidAutoSessionEnded);
-            carConnection.start();
+        if (useAudioFocus || pauseOnAndroidAutoConnect || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
+            carConnection = new CarConnection(this,
+                    () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
+            if (pauseOnAndroidAutoConnect) {
+                carConnection.setOnSessionConnected(this::pausePlayback);
+            }
         }
         if (useAudioFocus) {
-            audioFocus = new AudioFocus(this, lib, carConnection);
+            audioFocus = new AudioFocus(this, lib, carConnection, !pauseOnAndroidAutoConnect);
+        }
+        // After AudioFocus has set its session start callback
+        if (null!=carConnection) {
+            carConnection.start();
         }
 
         if (mediaSessionCallback==null) {
@@ -337,14 +351,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 @Override
                 public void onPause() {
                     Utils.debug("");
-                    if (null!=lib) {
-                        lib.pause();
-                    }
+                    pausePlayback();
                 }
 
                 @Override
                 public void onStop() {
                     Utils.debug("");
+                    cancelPendingResume();
                     if (null!=lib) {
                         lib.stopPlayback();
                     }
@@ -390,16 +403,18 @@ public class PlayerService extends MediaBrowserServiceCompat {
                                     lib.play();
                                 } else {
                                     lastPauseKeyTime = now;
-                                    lib.pause();
+                                    pausePlayback();
                                 }
                                 return true;
                             }
                             case KeyEvent.KEYCODE_MEDIA_STOP:
+                                cancelPendingResume();
                                 lib.stopPlayback();
                                 return true;
                             // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                             case KeyEvent.KEYCODE_HEADSETHOOK:
+                                cancelPendingResume();
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
@@ -427,25 +442,31 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    private AndroidAutoSessionAction androidAutoSessionAction() {
-        SharedPreferences prefs = Prefs.get(this);
-        return AndroidAutoSessionAction.forSettings(
-                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
-                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY,
-                        Prefs.DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT));
+    private void pausePlayback() {
+        cancelPendingResume();
+        if (null!=lib) {
+            lib.pause();
+        }
     }
 
-    private void androidAutoSessionEnded() {
-        switch (androidAutoSessionAction()) {
+    private void cancelPendingResume() {
+        if (null!=audioFocus) {
+            audioFocus.cancelPendingResume();
+        }
+    }
+
+    private void handleAndroidAutoSessionEnd(AndroidAutoSessionAction action) {
+        switch (action) {
             case STOP:
                 stopForegroundService();
                 break;
             case PAUSE:
-                if (lib!=null) {
-                    lib.pause();
-                }
+                pausePlayback();
                 break;
-            default:
+            case RESUME:
+                if (null!=audioFocus) {
+                    audioFocus.resumeAfterCarDisconnect();
+                }
                 break;
         }
     }
@@ -488,6 +509,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public void playbackStateChanged(boolean playing) {
         Utils.debug("playing:"+playing);
         handler.post(() -> {
+            CarConnection connection = carConnection;
+            if (null!=connection) {
+                connection.playbackStateChanged(playing);
+            }
             AudioFocus focus = audioFocus;
             if (null!=focus) {
                 // An exception here would kill the main thread, and every later update with it
