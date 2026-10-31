@@ -86,6 +86,25 @@ static struct {
 
 int autostart;
 bool sentSTMu, sentSTMo, sentSTMl;
+
+// Look-ahead (see stream.c): once the decoder's track has fully arrived, STMd is sent before it's decoded, so LMS sends
+// the next track early. Its 'strm s' then only starts the download (into the next track buffer); the codec and the
+// track's output settings are applied when the current track has been decoded (handover), when 'strm s' would have
+// come without look-ahead.
+static enum { LA_IDLE, LA_WAIT_NEXT, LA_NEXT } lookahead; // WAIT_NEXT: STMd sent early, NEXT: next track streaming
+static bool la_cur_done, la_next_done; // the decoder's / the next track's download has completed
+static struct {
+	bool codec;
+	u8_t format, sample_size, sample_rate, channels, endianness;
+	unsigned threshold, replay_gain, fade_secs;
+	u8_t fade_mode, invert, out_channels;
+} la_next;
+
+static void lookahead_reset(void) {
+	stream_next_discard();
+	lookahead = LA_IDLE;
+	la_cur_done = la_next_done = false;
+}
 u32_t new_server;
 char *new_server_cap;
 #define PLAYER_NAME_LEN 64
@@ -337,6 +356,7 @@ static void process_strm(u8_t *pkt, int len) {
 		output_flush();
 		status.frames_played = 0;
 		stream_disconnect();
+		lookahead_reset();
 		sendSTAT("STMf", 0);
 		buf_flush(streambuf);
 #ifdef ANDROID
@@ -345,6 +365,18 @@ static void process_strm(u8_t *pkt, int len) {
 		break;
 	case 'f': 
 		{
+			if (lookahead != LA_IDLE) {
+				// Look-ahead: LMS flushes the next track (e.g. the queue changed). The current track is still decoded,
+				// only the next one is dropped; LMS sends the new next track at once.
+				bool disc = stream_next_discard();
+				lookahead = LA_WAIT_NEXT;
+				la_next_done = false;
+				LOG_APP("look-ahead: next track flushed");
+				if (disc) {
+					sendSTAT("STMf", 0);
+				}
+				break;
+			}
 			decode_flush();
 			// we can have fully finished the current streaming, that's still a flush
 			flushed = output_flush_streaming();
@@ -409,6 +441,8 @@ static void process_strm(u8_t *pkt, int len) {
 			LOG_DEBUG("strm s autostart: %c transition period: %u transition type: %u codec: %c", 
 					  strm->autostart, strm->transition_period, strm->transition_type - '0', strm->format);
 			
+			bool next = lookahead == LA_WAIT_NEXT && !(ip == LOCAL_PLAYER_IP && port == LOCAL_PLAYER_PORT);
+
 			autostart = strm->autostart - '0';
 
 			sendSTAT("STMf", 0);
@@ -416,7 +450,19 @@ static void process_strm(u8_t *pkt, int len) {
 				LOG_WARN("header too long: %u", header_len);
 				break;
 			}
-			if (strm->format != '?') {
+			if (next) {
+				// look-ahead: the decoder still has the current track, open the codec at handover
+				la_next.codec = strm->format != '?';
+				la_next.format = strm->format;
+				la_next.sample_size = strm->pcm_sample_size;
+				la_next.sample_rate = strm->pcm_sample_rate;
+				la_next.channels = strm->pcm_channels;
+				la_next.endianness = strm->pcm_endianness;
+				if (!la_next.codec && autostart < 2) {
+					LOG_WARN("unknown codec requires autostart >= 2");
+					break;
+				}
+			} else if (strm->format != '?') {
 				codec_open(strm->format, strm->pcm_sample_size, strm->pcm_sample_rate, strm->pcm_channels, strm->pcm_endianness);
 			} else if (autostart >= 2) {
 				// extension to slimproto to allow server to detect codec from response header and send back in codc message
@@ -430,11 +476,31 @@ static void process_strm(u8_t *pkt, int len) {
 				stream_file(header, header_len, strm->threshold * 1024);
 				autostart -= 2;
 			} else {
+				if (next) {
+					stream_next_begin();
+					lookahead = LA_NEXT;
+					la_next_done = false;
+					LOG_APP("look-ahead: streaming the next track while the current one decodes");
+				} else {
+					if (lookahead == LA_NEXT) stream_next_discard(); // not expected: LMS sends one next track
+					lookahead = LA_IDLE;
+					la_cur_done = false;
+				}
 				stream_sock(ip, port, strm->flags & 0x20, 
 						    strm->format == 'o' || strm->format == 'u' || (strm->format == 'f' && strm->pcm_sample_size == 'o'),
 							header, header_len, strm->threshold * 1024, autostart >= 2);
 			}
 			sendSTAT("STMc", 0);
+			if (next) {
+				// applied at handover: they belong to the track start that follows the current track
+				la_next.threshold = strm->output_threshold;
+				la_next.replay_gain = unpackN(&strm->replay_gain);
+				la_next.fade_mode = strm->transition_type - '0';
+				la_next.fade_secs = strm->transition_period;
+				la_next.invert = (strm->flags & 0x03) == 0x03;
+				la_next.out_channels = (strm->flags & 0x0c) >> 2;
+				break;
+			}
 			sentSTMu = sentSTMo = sentSTMl = false;
 			LOCK_O;
 			output.threshold = strm->output_threshold;
@@ -475,6 +541,16 @@ static void process_codc(u8_t *pkt, int len) {
 	struct codc_packet *codc = (struct codc_packet *)pkt;
 
 	LOG_DEBUG("codc: %c", codc->format);
+	if (lookahead == LA_NEXT) {
+		// for the next track (look-ahead): opened at handover
+		la_next.codec = true;
+		la_next.format = codc->format;
+		la_next.sample_size = codc->pcm_sample_size;
+		la_next.sample_rate = codc->pcm_sample_rate;
+		la_next.channels = codc->pcm_channels;
+		la_next.endianness = codc->pcm_endianness;
+		return;
+	}
 	codec_open(codc->format, codc->pcm_sample_size, codc->pcm_sample_rate, codc->pcm_channels, codc->pcm_endianness);
 }
 
@@ -712,6 +788,7 @@ static void slimproto_run() {
 			bool _sendSTMn = false;
 			bool _stream_disconnect = false;
 			bool _start_output = false;
+			bool _handover = false;
 			decode_state _decode_state;
 			disconnect_code disconnect_code;
 #ifdef ANDROID
@@ -736,6 +813,11 @@ static void slimproto_run() {
 				disconnect_code = stream.disconnect;
 				stream.state = STOPPED;
 				_sendDSCO = true;
+				if (stream.next_pending) {
+					la_next_done = disconnect_code == DISCONNECT_OK;
+				} else {
+					la_cur_done = disconnect_code == DISCONNECT_OK;
+				}
 			}
 			if (!stream.sent_headers && 
 				(stream.state == STREAMING_HTTP || stream.state == STREAMING_WAIT || stream.state == STREAMING_BUFFERING)) {
@@ -766,16 +848,64 @@ static void slimproto_run() {
 				}
 				// autostart 2 and 3 require cont to be received first
 			}
+			// look-ahead: the decoder's track has fully arrived, ask LMS for the next one now
+			if (lookahead == LA_IDLE && la_cur_done && decode.state == DECODE_RUNNING && stream_lookahead_enabled()) {
+				LOG_APP("look-ahead: track downloaded, sending STMd for the next one");
+				_sendSTMd = true;
+				lookahead = LA_WAIT_NEXT;
+				la_cur_done = false;
+			}
 			if (decode.state == DECODE_COMPLETE || decode.state == DECODE_ERROR) {
-				if (decode.state == DECODE_COMPLETE) _sendSTMd = true;
-				if (decode.state == DECODE_ERROR)    _sendSTMn = true;
-				decode.state = DECODE_STOPPED;
-				if (status.stream_state == STREAMING_HTTP || status.stream_state == STREAMING_FILE) {
-					_stream_disconnect = true;
+				if (lookahead == LA_NEXT) {
+					// the next track is already streaming: hand it to the decoder (below, without the decode lock)
+					if (decode.state == DECODE_ERROR) LOG_APP("look-ahead: decode error, playing on with the next track");
+					_handover = true;
+				} else {
+					// with look-ahead STMd was already sent
+					if (decode.state == DECODE_COMPLETE && lookahead != LA_WAIT_NEXT) _sendSTMd = true;
+					if (decode.state == DECODE_ERROR)    _sendSTMn = true;
+					lookahead = LA_IDLE;
+					if (status.stream_state == STREAMING_HTTP || status.stream_state == STREAMING_FILE) {
+						_stream_disconnect = true;
+					}
 				}
+				decode.state = DECODE_STOPPED;
 			}
 			_decode_state = decode.state;
 			UNLOCK_D;
+
+			if (_handover) {
+				// what 'strm s' does without look-ahead: open the codec, set the track's output settings
+				stream_handover();
+				lookahead = LA_IDLE;
+				la_cur_done = la_next_done;
+				if (la_next.codec) {
+					codec_open(la_next.format, la_next.sample_size, la_next.sample_rate, la_next.channels, la_next.endianness);
+				}
+				LOCK_O;
+				output.threshold = la_next.threshold;
+				output.next_replay_gain = la_next.replay_gain;
+				output.fade_mode = la_next.fade_mode;
+				output.fade_secs = la_next.fade_secs;
+				output.invert = la_next.invert;
+				output.channels = la_next.out_channels;
+				UNLOCK_O;
+				sentSTMu = sentSTMo = sentSTMl = false;
+				// start decoding: the download may be over already, so the stream state check above wouldn't
+				LOCK_D;
+				if (decode.state == DECODE_READY) {
+					if (autostart == 0) {
+						decode.state = DECODE_RUNNING;
+						_sendSTMl = true;
+						sentSTMl = true;
+					} else if (autostart == 1) {
+						decode.state = DECODE_RUNNING;
+						_start_output = true;
+					}
+				}
+				_decode_state = decode.state;
+				UNLOCK_D;
+			}
 			
 			LOCK_O;
 			status.output_full = _buf_used(outputbuf);

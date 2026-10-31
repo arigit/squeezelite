@@ -126,7 +126,12 @@ public class Library {
                 : Prefs.VOLUME_CONTROL_DEVICE.equals(vc)
                 ? VOL_DEV
                 : VOL_SYNC;
-        int streamBuffer = Integer.parseInt(prefs.getString(Prefs.STREAM_BUFFER_KEY, Prefs.DEFAULT_STREAM_BUFFER));
+        int bufferSetting = Integer.parseInt(prefs.getString(Prefs.STREAM_BUFFER_KEY, Prefs.DEFAULT_STREAM_BUFFER));
+        // dynamic (negative): starts at the default size and grows to hold whole songs, up to lookaheadMax MB each
+        int streamBuffer = Math.max(bufferSetting, 0);
+        int lookaheadMax = bufferSetting < 0
+                ? Integer.parseInt(prefs.getString(Prefs.LOOKAHEAD_MAX_KEY, Prefs.DEFAULT_LOOKAHEAD_MAX))
+                : 0;
 
         maxBitrate = Integer.parseInt(prefs.getString(Prefs.MAX_BITRATE_KEY, Prefs.DEFAULT_MAX_BITRATE));
         int maxBitrateWhen = Integer.parseInt(prefs.getString(Prefs.MAX_BITRATE_WHEN_KEY, Prefs.DEFAULT_MAX_BITRATE_WHEN));
@@ -195,6 +200,7 @@ public class Library {
               LOG_ERROR,
               cellular || metered ? 1 : 0,
               streamBuffer,
+              lookaheadMax,
               prefs.getBoolean(Prefs.USE_OPENSLES_KEY, Prefs.DEFAULT_USE_OPENSLES) ? 1 : 0));
         thread.start();
         return usingBtName ? name : null;
@@ -477,6 +483,6 @@ public class Library {
         return null==jsonRpc ? null : jsonRpc.getMac();
     }
 
-    private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer, int openSlEs);
+    private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer, int lookaheadMax, int openSlEs);
     private native void stop();
 }

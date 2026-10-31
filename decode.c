@@ -63,7 +63,7 @@ static void *decode_thread(void *vargp) {
 
 		LOCK_S;
 		bytes = _buf_used(streambuf);
-		toend = (stream.state <= DISCONNECT);
+		toend = (STREAM_INPUT_ENDED);
 		UNLOCK_S;
 		LOCK_O;
 		space = _buf_space(outputbuf);

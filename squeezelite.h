@@ -557,6 +557,7 @@ void buf_flush(struct buffer *buf);
 void _buf_unwrap(struct buffer *buf, size_t cont);
 void buf_adjust(struct buffer *buf, size_t mod);
 void _buf_resize(struct buffer *buf, size_t size);
+bool _buf_grow(struct buffer *buf, size_t size);
 void buf_init(struct buffer *buf, size_t size);
 void buf_destroy(struct buffer *buf);
 
@@ -587,13 +588,31 @@ struct streamstate {
 	u32_t meta_next;
 	u32_t meta_left;
 	bool  meta_send;
+	bool next_pending; // look-ahead: the data now received is the next track's, the decoder's track has fully arrived
 };
+
+// Look-ahead events: also to the app's log on Android (player.log in debug builds), which gets errors only otherwise
+#ifdef ANDROID
+#define LOG_APP(fmt, ...) do { char _msg[200]; snprintf(_msg, sizeof(_msg), fmt, ##__VA_ARGS__); \
+	LOG_INFO("%s", _msg); send_log_to_app(_msg); } while (0)
+#else
+#define LOG_APP(fmt, ...) LOG_INFO(fmt, ##__VA_ARGS__)
+#endif
+
+// The decoder's track has no more data coming. Codecs check this, not stream.state: with look-ahead stream.state is
+// the next track's download.
+#define STREAM_INPUT_ENDED (stream.state <= DISCONNECT || stream.next_pending)
 
 void stream_init(log_level level, unsigned stream_buf_size);
 void stream_close(void);
 void stream_file(const char *header, size_t header_len, unsigned threshold);
 void stream_sock(u32_t ip, u16_t port, bool use_ssl, bool use_ogg, const char *header, size_t header_len, unsigned threshold, bool cont_wait);
 bool stream_disconnect(void);
+void stream_lookahead(size_t max_size);
+bool stream_lookahead_enabled(void);
+void stream_next_begin(void);
+void stream_handover(void);
+bool stream_next_discard(void);
 
 // decode.c
 typedef enum { DECODE_STOPPED = 0, DECODE_READY, DECODE_RUNNING, DECODE_COMPLETE, DECODE_ERROR } decode_state;
