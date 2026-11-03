@@ -93,6 +93,11 @@ bool sentSTMu, sentSTMo, sentSTMl;
 // come without look-ahead.
 static enum { LA_IDLE, LA_WAIT_NEXT, LA_NEXT } lookahead; // WAIT_NEXT: STMd sent early, NEXT: next track streaming
 static bool la_cur_done, la_next_done; // the decoder's / the next track's download has completed
+// STMd waits until the decoder's track has started playing (its STMs sent). LMS takes a song as playing before its STMs
+// when the whole song has streamed before playback starts (_StartStreamout -> _Start -> _Playing), e.g. the last
+// seconds of a track restreamed on resume after a pause (_JumpOrResume). STMd then queued the next song, and the
+// real STMs made LMS drop the playing one and take the next as started: one track ahead of the audio from then on.
+static bool stmd_held;
 static struct {
 	bool codec;
 	u8_t format, sample_size, sample_rate, channels, endianness;
@@ -104,6 +109,7 @@ static void lookahead_reset(void) {
 	stream_next_discard();
 	lookahead = LA_IDLE;
 	la_cur_done = la_next_done = false;
+	stmd_held = false;
 }
 u32_t new_server;
 char *new_server_cap;
@@ -378,6 +384,7 @@ static void process_strm(u8_t *pkt, int len) {
 				break;
 			}
 			decode_flush();
+			stmd_held = false;
 			// we can have fully finished the current streaming, that's still a flush
 			flushed = output_flush_streaming();
 			if (stream_disconnect() || flushed) {
@@ -485,6 +492,7 @@ static void process_strm(u8_t *pkt, int len) {
 					if (lookahead == LA_NEXT) stream_next_discard(); // not expected: LMS sends one next track
 					lookahead = LA_IDLE;
 					la_cur_done = false;
+					stmd_held = false;
 				}
 				stream_sock(ip, port, strm->flags & 0x20, 
 						    strm->format == 'o' || strm->format == 'u' || (strm->format == 'f' && strm->pcm_sample_size == 'o'),
@@ -850,8 +858,8 @@ static void slimproto_run() {
 			}
 			// look-ahead: the decoder's track has fully arrived, ask LMS for the next one now
 			if (lookahead == LA_IDLE && la_cur_done && decode.state == DECODE_RUNNING && stream_lookahead_enabled()) {
-				LOG_APP("look-ahead: track downloaded, sending STMd for the next one");
-				_sendSTMd = true;
+				LOG_APP("look-ahead: track downloaded, STMd for the next one once it plays");
+				stmd_held = true;
 				lookahead = LA_WAIT_NEXT;
 				la_cur_done = false;
 			}
@@ -862,7 +870,7 @@ static void slimproto_run() {
 					_handover = true;
 				} else {
 					// with look-ahead STMd was already sent
-					if (decode.state == DECODE_COMPLETE && lookahead != LA_WAIT_NEXT) _sendSTMd = true;
+					if (decode.state == DECODE_COMPLETE && lookahead != LA_WAIT_NEXT) stmd_held = true;
 					if (decode.state == DECODE_ERROR)    _sendSTMn = true;
 					lookahead = LA_IDLE;
 					if (status.stream_state == STREAMING_HTTP || status.stream_state == STREAMING_FILE) {
@@ -906,7 +914,16 @@ static void slimproto_run() {
 				_decode_state = decode.state;
 				UNLOCK_D;
 			}
-			
+
+			// read before the output lock (lock order: decode, then output); new_stream only turns false meanwhile, and
+			// the output's track start, checked below, is set before that
+			bool _new_stream = false;
+			if (stmd_held) {
+				LOCK_D;
+				_new_stream = decode.new_stream;
+				UNLOCK_D;
+			}
+
 			LOCK_O;
 			status.output_full = _buf_used(outputbuf);
 			status.output_size = outputbuf->size;
@@ -923,6 +940,12 @@ static void slimproto_run() {
 				_sendSTMs = true;
 				output.track_started = false;
 				status.stream_start = output.track_start_time;
+			}
+			// the decoder's track has started (its STMs goes out first, below), or nothing is left to play
+			if (stmd_held && ((!_new_stream && !output.track_start) ||
+							  (status.output_full == 0 && _decode_state == DECODE_STOPPED))) {
+				_sendSTMd = true;
+				stmd_held = false;
 			}
 #if PORTAUDIO
 			if (output.pa_reopen) {
