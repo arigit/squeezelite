@@ -52,6 +52,7 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
 import androidx.media.MediaBrowserServiceCompat;
+import androidx.media.MediaSessionManager;
 import androidx.media.session.MediaButtonReceiver;
 
 import java.util.ArrayList;
@@ -93,8 +94,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
     // means play. Only button presses count: a car sending pause after our own pause (Android Auto disconnect)
     // must not start playback.
     private static final long PAUSE_AGAIN_MEANS_PLAY_MS = 10000;
+    // A pause key this soon after Android Auto connects is ignored, unless pausing on connect: the car or Android
+    // Auto sends one (seen 0.4-15 s after connect, 2026-11-04..06), which paused what a controller had just resumed.
+    private static final long CAR_CONNECT_PAUSE_WINDOW_MS = 20000;
     // An output disconnect this close to an Android Auto session end is left to the Android Auto settings
     private static final long CAR_SESSION_END_MARGIN_MS = 10000;
+    private boolean pauseOnAndroidAutoConnect = false;
     private BroadcastReceiver noisyReceiver = null;
     private long lastPauseKeyTime = 0;
     private boolean started = false;
@@ -348,7 +353,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         SharedPreferences prefs = Prefs.get(this);
         // Separate settings: e.g. a controller (Lyrion) may start playback as the car connects, which needs Android
         // Auto's focus grab at startup reclaimed, but playback still paused when the car disconnects
-        boolean pauseOnAndroidAutoConnect = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
+        pauseOnAndroidAutoConnect = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
         AndroidAutoSessionAction androidAutoSessionAction = AndroidAutoSessionAction.forSettings(
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
                 prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
@@ -423,13 +428,17 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
                     KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                     if (null!=lib && null!=event && KeyEvent.ACTION_DOWN==event.getAction()) {
-                        Utils.debug("KeyCode:" + event.getKeyCode());
+                        Utils.debug("KeyCode:" + event.getKeyCode() + ", from " + caller());
                         switch (event.getKeyCode()) {
                             case KeyEvent.KEYCODE_MEDIA_PLAY:
                                 lastPauseKeyTime = 0;
                                 lib.play();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PAUSE: {
+                                if (carStartingUp()) {
+                                    Utils.debug("Ignoring pause on car connect");
+                                    return true;
+                                }
                                 long now = SystemClock.elapsedRealtime();
                                 if (!lib.isPlaying() && lastPauseKeyTime>0 && now-lastPauseKeyTime<PAUSE_AGAIN_MEANS_PLAY_MS) {
                                     Utils.debug("Pause again while paused, so play");
@@ -474,6 +483,30 @@ public class PlayerService extends MediaBrowserServiceCompat {
             nowPlaying = new NowPlaying(this, lib, mediaSession);
             nowPlaying.update();
         }
+    }
+
+    // Which app sent the current media session command, for the log
+    private String caller() {
+        try {
+            MediaSessionManager.RemoteUserInfo info = null==mediaSession ? null : mediaSession.getCurrentControllerInfo();
+            return null==info ? "?" : (info.getPackageName() + " (uid " + info.getUid() + ")");
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
+    // Android Auto has just connected (or is connecting), and pausing on connect is off
+    private boolean carStartingUp() {
+        CarConnection connection = carConnection;
+        if (pauseOnAndroidAutoConnect || null==connection) {
+            return false;
+        }
+        long since = connection.connectedSince();
+        if (since > 0) {
+            return SystemClock.elapsedRealtime() - since < CAR_CONNECT_PAUSE_WINDOW_MS;
+        }
+        // Not seen yet: the key can arrive before the connection state change
+        return CarConnection.state(this) > CarConnection.NOT_CONNECTED;
     }
 
     // Bluetooth audio or headphones disconnected: Android is about to play through the speaker
