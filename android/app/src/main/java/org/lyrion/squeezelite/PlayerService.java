@@ -67,6 +67,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public static final String STATUS_INTENT = PlayerService.class.getCanonicalName()+".STATUS";
     private static final String QUIT_INTENT = PlayerService.class.getCanonicalName() + ".QUIT";
     public static final String RUNNING_KEY = "running";
+    // Set by Lyrion when it starts the player because Android Auto connected: the car's pause key can arrive
+    // before Android Auto's connection state says connected
+    public static final String CAR_CONNECTING_EXTRA = "carConnecting";
     public static final String NOTIFICATION_CHANNEL_ID = "squeezelite_service";
     private static final int MSG_ID = 1;
 
@@ -102,6 +105,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private boolean pauseOnAndroidAutoConnect = false;
     private BroadcastReceiver noisyReceiver = null;
     private long lastPauseKeyTime = 0;
+    // When Lyrion last started the player for a car connect, 0 if never
+    private long carConnectingAt = 0;
     private boolean started = false;
 
     // stopService() is not enough, as Android Auto can keep the service bound and so alive
@@ -179,6 +184,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
             if (QUIT_INTENT.equals(action)) {
                 stopForegroundService();
                 return START_NOT_STICKY;
+            }
+            if (intent.getBooleanExtra(CAR_CONNECTING_EXTRA, false)) {
+                Utils.debug("Started for a car connect");
+                carConnectingAt = SystemClock.elapsedRealtime();
             }
         }
 
@@ -498,7 +507,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
     // Android Auto has just connected (or is connecting), and pausing on connect is off
     private boolean carStartingUp() {
         CarConnection connection = carConnection;
-        if (pauseOnAndroidAutoConnect || null==connection) {
+        if (pauseOnAndroidAutoConnect) {
+            return false;
+        }
+        if (carConnectingAt > 0 && SystemClock.elapsedRealtime() - carConnectingAt < CAR_CONNECT_PAUSE_WINDOW_MS) {
+            return true;
+        }
+        if (null==connection) {
             return false;
         }
         long since = connection.connectedSince();
