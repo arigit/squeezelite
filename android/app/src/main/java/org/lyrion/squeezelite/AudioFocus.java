@@ -37,8 +37,9 @@ public class AudioFocus {
     private static final long RECLAIM_DELAY = 1500;
     private static final long RECLAIM_RETRY_DELAY = 500;
     private static final long RECLAIM_TIMEOUT = 10000;
-    // A loss later than this into a car session is another app
-    private static final long STARTUP_WINDOW = 60000;
+    // A loss later than this into a car session is another app. Android Auto takes focus as the session
+    // starts (seen: at once, and again 9s later); a podcast app started after this pauses the player.
+    private static final long STARTUP_WINDOW = 15000;
 
     private final Context context;
     private final AudioManager audioManager;
@@ -71,6 +72,7 @@ public class AudioFocus {
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
+                handler.removeCallbacks(callCheck);
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = false;
@@ -82,10 +84,12 @@ public class AudioFocus {
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 haveFocus = false;
+                // Only resumed later if it was playing: 'pause 0' on a stopped player starts its playlist from the top
+                boolean wasPlaying = lib.isPlaying();
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
-                lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
-                pausedByLoss = !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
+                lostFocusDuringCarSession = wasPlaying && null!=carConnection && 0!=carConnection.connectedSince();
+                pausedByLoss = wasPlaying && !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
                     scheduleReclaim(RECLAIM_DELAY);
                 } else {
@@ -93,9 +97,22 @@ public class AudioFocus {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = !suppressAutoResume;
-                lib.pause();
+                // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
+                // stopped player starts its playlist from the top. Not after a call: whether to resume then is the
+                // controller's setting (Lyrion's "after a call"), and resuming here ignored it.
+                if (lib.isPlaying()) {
+                    boolean call = inCall();
+                    pausedByLoss = !suppressAutoResume && !call;
+                    Utils.debug("Transient loss, audio mode " + audioManager.getMode() + (call ? ": a call, not resuming after it" : ""));
+                    lib.pause();
+                    if (pausedByLoss) {
+                        // Telecom requests focus and sets the call mode at about the same time (an outgoing call),
+                        // so the mode can still be normal when the loss arrives: look again shortly after.
+                        for (long delay : CALL_CHECK_DELAYS) {
+                            handler.postDelayed(callCheck, delay);
+                        }
+                    }
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself
@@ -103,6 +120,23 @@ public class AudioFocus {
             default:
                 break;
         }
+    }
+
+    private static final long[] CALL_CHECK_DELAYS = {500, 1500, 3000};
+    private final Runnable callCheck = this::checkCall;
+
+    private void checkCall() {
+        if (pausedByLoss && inCall()) {
+            pausedByLoss = false;
+            Utils.debug("Paused for a call (audio mode " + audioManager.getMode() + "), not resuming after it");
+        }
+    }
+
+    private boolean inCall() {
+        int mode = audioManager.getMode();
+        return AudioManager.MODE_RINGTONE==mode || AudioManager.MODE_IN_CALL==mode ||
+                AudioManager.MODE_IN_COMMUNICATION==mode ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && AudioManager.MODE_CALL_SCREENING==mode);
     }
 
     private boolean mayBeCarStarting() {
