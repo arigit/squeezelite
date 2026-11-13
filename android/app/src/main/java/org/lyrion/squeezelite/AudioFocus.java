@@ -97,9 +97,14 @@ public class AudioFocus {
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
-                // stopped player starts its playlist from the top.
+                // stopped player starts its playlist from the top. Not after a call: whether to resume then is the
+                // controller's setting (Lyrion's "after a call"), and resuming here ignored it.
                 if (lib.isPlaying()) {
-                    pausedByLoss = !suppressAutoResume;
+                    boolean call = inCall();
+                    pausedByLoss = !suppressAutoResume && !call;
+                    if (call) {
+                        Utils.debug("Paused for a call, not resuming after it (audio mode " + audioManager.getMode() + ")");
+                    }
                     lib.pause();
                 }
                 break;
@@ -109,6 +114,13 @@ public class AudioFocus {
             default:
                 break;
         }
+    }
+
+    private boolean inCall() {
+        int mode = audioManager.getMode();
+        return AudioManager.MODE_RINGTONE==mode || AudioManager.MODE_IN_CALL==mode ||
+                AudioManager.MODE_IN_COMMUNICATION==mode ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && AudioManager.MODE_CALL_SCREENING==mode);
     }
 
     private boolean mayBeCarStarting() {
