@@ -97,6 +97,8 @@ static struct buffer nextbuf; // protected by streambuf's mutex, has none of its
 static struct buffer *wbuf = &buf; // where the stream thread writes: buf, or nextbuf while stream.next_pending
 static size_t lookahead_max; // 0: look-ahead off
 static size_t lookahead_base; // size of a new next track buffer
+static bool next_continue; // the next stream_sock() appends to the next track's data, see stream_next_continue()
+static u64_t next_continue_bytes;
 
 #define LOCK   mutex_lock(streambuf->mutex)
 #define UNLOCK mutex_unlock(streambuf->mutex)
@@ -943,9 +945,12 @@ void stream_sock(u32_t ip, u16_t port, bool use_ssl, bool use_ogg, const char* h
 
 	LOCK;
 
-	// the buffer being written to: the next track's with look-ahead (stream_next_begin), else the decoder's
-	wbuf->readp = wbuf->buf;
-	wbuf->writep = wbuf->buf;
+	// the buffer being written to: the next track's with look-ahead (stream_next_begin), else the decoder's;
+	// kept when the stream continues the next track's data (stream_next_continue)
+	if (!next_continue) {
+		wbuf->readp = wbuf->buf;
+		wbuf->writep = wbuf->buf;
+	}
 
 	fd = sock;
 	stream.state = SEND_HEADERS;
@@ -961,7 +966,8 @@ void stream_sock(u32_t ip, u16_t port, bool use_ssl, bool use_ogg, const char* h
 	LOG_INFO("header: %s", stream.header);
 
 	stream.sent_headers = false;
-	stream.bytes = 0;
+	stream.bytes = next_continue ? next_continue_bytes : 0;
+	next_continue = false;
 	stream.threshold = threshold;
 
 #if USE_LIBOGG
@@ -1044,6 +1050,30 @@ void stream_next_begin(void) {
 		LOG_ERROR("can't allocate the next track buffer");
 	}
 	UNLOCK;
+}
+
+// LMS restarts the next track's stream where the player said it was (its HELO's byte count, 'Restarting stream at
+// offset' after a reconnect LMS doesn't take as one): keep the next track's data up to that count, stop its old
+// download if it still runs, and have the next stream_sock() append to it. Returns false if the data can't be
+// continued (the caller then starts the next track again).
+bool stream_next_continue(u64_t from_bytes) {
+	bool ok;
+	LOCK;
+	ok = stream.next_pending && nextbuf.buf && nextbuf.readp == nextbuf.buf && from_bytes > 0 &&
+		 from_bytes <= (u64_t)(nextbuf.writep - nextbuf.buf);
+	UNLOCK;
+	if (!ok) {
+		return false;
+	}
+	stream_disconnect();
+	LOCK;
+	nextbuf.writep = nextbuf.buf + from_bytes;
+	wbuf = &nextbuf;
+	stream.next_pending = true;
+	next_continue = true;
+	next_continue_bytes = from_bytes;
+	UNLOCK;
+	return true;
 }
 
 // The decoder has finished the current track: the next track's data (and its ongoing download) become the decoder's.

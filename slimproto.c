@@ -150,6 +150,8 @@ void send_packet(u8_t *packet, size_t len) {
 	}
 }
 
+static u64_t helo_stream_bytes;
+
 static void sendHELO(bool reconnect, const char *fixed_cap, const char *var_cap, u8_t mac[6], int mobile_network) {
 	#define BASE_CAP "AccuratePlayPoints=1,HasDigitalOut=1,HasPolarityInversion=1,Balance=1,Firmware=" VERSION
 	#define SSL_CAP "CanHTTPS=1,"
@@ -173,6 +175,7 @@ static void sendHELO(bool reconnect, const char *fixed_cap, const char *var_cap,
 	pkt.deviceid = 12; // squeezeplay
 	pkt.revision = 0;
 	packn(&pkt.wlan_channellist, reconnect ? 0x4000 : 0x0000);
+	helo_stream_bytes = status.stream_bytes; // what LMS continues a stream from
 	packN(&pkt.bytes_received_H, (u64_t)status.stream_bytes >> 32);
 	packN(&pkt.bytes_received_L, (u64_t)status.stream_bytes & 0xffffffff);
 	memcpy(pkt.mac, mac, 6);
@@ -450,7 +453,24 @@ static void process_strm(u8_t *pkt, int len) {
 			LOG_DEBUG("strm s autostart: %c transition period: %u transition type: %u codec: %c", 
 					  strm->autostart, strm->transition_period, strm->transition_type - '0', strm->format);
 			
-			bool next = lookahead == LA_WAIT_NEXT && !(ip == LOCAL_PLAYER_IP && port == LOCAL_PLAYER_PORT);
+			bool local = ip == LOCAL_PLAYER_IP && port == LOCAL_PLAYER_PORT;
+			bool cont = false;
+			if (lookahead == LA_NEXT && !local) {
+				// A strm s without a flush while the next track is streaming: LMS restarting the next track's stream
+				// from the byte count of the player's HELO, after a reconnect it didn't take as one (_Continue). It
+				// belongs after the next track's data, not in the decoder's buffer: stream_sock() would reset that
+				// buffer, and the next track would play on as part of the current one with no track start for LMS.
+				cont = stream_next_continue(helo_stream_bytes);
+				if (cont) {
+					LOG_APP("strm s while the next track was streaming: continuing it from byte %u", (unsigned)helo_stream_bytes);
+				} else {
+					LOG_APP("strm s while the next track was streaming: streaming the next track again");
+					stream_next_discard();
+				}
+				lookahead = LA_WAIT_NEXT;
+				la_next_done = false;
+			}
+			bool next = lookahead == LA_WAIT_NEXT && !local;
 
 			autostart = strm->autostart - '0';
 
@@ -486,19 +506,12 @@ static void process_strm(u8_t *pkt, int len) {
 				autostart -= 2;
 			} else {
 				if (next) {
-					stream_next_begin();
+					if (!cont) stream_next_begin();
 					lookahead = LA_NEXT;
 					la_next_done = false;
 					LOG_APP("look-ahead: streaming the next track while the current one decodes");
 				} else {
-					if (lookahead == LA_NEXT) {
-						// not expected: LMS sends one next track. The new stream goes into the decoder's buffer,
-						// after whatever of the current track is left there.
-						LOG_APP("strm s while the next track was streaming: next track dropped, streaming into the current buffer");
-						stream_next_discard();
-					} else {
-						LOG_APP("strm s (look-ahead %s)", lookahead == LA_WAIT_NEXT ? "waiting" : "idle");
-					}
+					LOG_APP("strm s (look-ahead %s)", lookahead == LA_WAIT_NEXT ? "waiting" : "idle");
 					lookahead = LA_IDLE;
 					la_cur_done = false;
 					stmd_held = false;
