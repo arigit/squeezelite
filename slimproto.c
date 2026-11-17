@@ -358,6 +358,7 @@ static void process_strm(u8_t *pkt, int len) {
 		sendSTAT("STMt", strm->replay_gain); // STMt replay_gain is no longer used to track latency, but support it
 		break;
 	case 'q':
+		LOG_APP("strm q (stop)");
 		decode_flush();
 		output_flush();
 		status.frames_played = 0;
@@ -383,6 +384,7 @@ static void process_strm(u8_t *pkt, int len) {
 				}
 				break;
 			}
+			LOG_APP("strm f (flush)");
 			decode_flush();
 			stmd_held = false;
 			// we can have fully finished the current streaming, that's still a flush
@@ -489,7 +491,14 @@ static void process_strm(u8_t *pkt, int len) {
 					la_next_done = false;
 					LOG_APP("look-ahead: streaming the next track while the current one decodes");
 				} else {
-					if (lookahead == LA_NEXT) stream_next_discard(); // not expected: LMS sends one next track
+					if (lookahead == LA_NEXT) {
+						// not expected: LMS sends one next track. The new stream goes into the decoder's buffer,
+						// after whatever of the current track is left there.
+						LOG_APP("strm s while the next track was streaming: next track dropped, streaming into the current buffer");
+						stream_next_discard();
+					} else {
+						LOG_APP("strm s (look-ahead %s)", lookahead == LA_WAIT_NEXT ? "waiting" : "idle");
+					}
 					lookahead = LA_IDLE;
 					la_cur_done = false;
 					stmd_held = false;
@@ -869,6 +878,11 @@ static void slimproto_run() {
 					if (decode.state == DECODE_ERROR) LOG_APP("look-ahead: decode error, playing on with the next track");
 					_handover = true;
 				} else {
+					if (stream_lookahead_enabled()) {
+						LOG_APP("track decoded (%s), no next track streaming (look-ahead %s)",
+								decode.state == DECODE_ERROR ? "error" : "complete",
+								lookahead == LA_WAIT_NEXT ? "waiting for it" : "idle");
+					}
 					// with look-ahead STMd was already sent
 					if (decode.state == DECODE_COMPLETE && lookahead != LA_WAIT_NEXT) stmd_held = true;
 					if (decode.state == DECODE_ERROR)    _sendSTMn = true;
@@ -1011,16 +1025,21 @@ static void slimproto_run() {
 			if (_sendDSCO && REMOTE_DISCONNECT == disconnect_code) send_stream_cut_to_app(status.stream_bytes);
 #endif
 			if (_sendSTMs) {
+				LOG_APP("track started (STMs)");
 				sendSTAT("STMs", 0);
 #ifdef ANDROID
 				// A new track has started playing - let the app update its MediaSession
 				send_playback_state_to_app();
 #endif
 			}
-			if (_sendSTMd) sendSTAT("STMd", 0);
+			if (_sendSTMd) {
+				LOG_APP("decoder ready for the next track (STMd)");
+				sendSTAT("STMd", 0);
+			}
 			if (_sendSTMt) sendSTAT("STMt", 0);
 			if (_sendSTMl) sendSTAT("STMl", 0);
 			if (_sendSTMu) {
+				LOG_APP("playback ran out (STMu)");
 				sendSTAT("STMu", 0);
 #ifdef ANDROID
 				// Playback ran out (end of the playlist): the app would otherwise still think it plays, and keep

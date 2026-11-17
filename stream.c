@@ -731,13 +731,14 @@ static void *stream_thread(void *vargp) {
 					
 					n = _recv(fd, wbuf->writep, space, 0);
 					if (n == 0) {
-						LOG_INFO("end of stream (%u bytes)", stream.bytes);
+						LOG_APP("%s track downloaded: %u bytes", stream.next_pending ? "next" : "current", (unsigned)stream.bytes);
 						_disconnect(DISCONNECT, DISCONNECT_OK);
 					}
 					if (n < 0) {
 						error = _last_error();
 						if (error != ERROR_WOULDBLOCK) {
-							LOG_INFO("error reading: %s (%d)", strerror(error), error);
+							LOG_APP("%s track download cut off after %u bytes: %s (%d)", stream.next_pending ? "next" : "current",
+									(unsigned)stream.bytes, strerror(error), error);
 							_disconnect(DISCONNECT, REMOTE_DISCONNECT);
 						}
 					}
