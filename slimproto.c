@@ -150,6 +150,8 @@ void send_packet(u8_t *packet, size_t len) {
 	}
 }
 
+static u64_t helo_stream_bytes;
+
 static void sendHELO(bool reconnect, const char *fixed_cap, const char *var_cap, u8_t mac[6], int mobile_network) {
 	#define BASE_CAP "AccuratePlayPoints=1,HasDigitalOut=1,HasPolarityInversion=1,Balance=1,Firmware=" VERSION
 	#define SSL_CAP "CanHTTPS=1,"
@@ -173,6 +175,7 @@ static void sendHELO(bool reconnect, const char *fixed_cap, const char *var_cap,
 	pkt.deviceid = 12; // squeezeplay
 	pkt.revision = 0;
 	packn(&pkt.wlan_channellist, reconnect ? 0x4000 : 0x0000);
+	helo_stream_bytes = status.stream_bytes; // what LMS continues a stream from
 	packN(&pkt.bytes_received_H, (u64_t)status.stream_bytes >> 32);
 	packN(&pkt.bytes_received_L, (u64_t)status.stream_bytes & 0xffffffff);
 	memcpy(pkt.mac, mac, 6);
@@ -358,6 +361,7 @@ static void process_strm(u8_t *pkt, int len) {
 		sendSTAT("STMt", strm->replay_gain); // STMt replay_gain is no longer used to track latency, but support it
 		break;
 	case 'q':
+		LOG_APP("strm q (stop)");
 		decode_flush();
 		output_flush();
 		status.frames_played = 0;
@@ -383,6 +387,7 @@ static void process_strm(u8_t *pkt, int len) {
 				}
 				break;
 			}
+			LOG_APP("strm f (flush)");
 			decode_flush();
 			stmd_held = false;
 			// we can have fully finished the current streaming, that's still a flush
@@ -448,7 +453,24 @@ static void process_strm(u8_t *pkt, int len) {
 			LOG_DEBUG("strm s autostart: %c transition period: %u transition type: %u codec: %c", 
 					  strm->autostart, strm->transition_period, strm->transition_type - '0', strm->format);
 			
-			bool next = lookahead == LA_WAIT_NEXT && !(ip == LOCAL_PLAYER_IP && port == LOCAL_PLAYER_PORT);
+			bool local = ip == LOCAL_PLAYER_IP && port == LOCAL_PLAYER_PORT;
+			bool cont = false;
+			if (lookahead == LA_NEXT && !local) {
+				// A strm s without a flush while the next track is streaming: LMS restarting the next track's stream
+				// from the byte count of the player's HELO, after a reconnect it didn't take as one (_Continue). It
+				// belongs after the next track's data, not in the decoder's buffer: stream_sock() would reset that
+				// buffer, and the next track would play on as part of the current one with no track start for LMS.
+				cont = stream_next_continue(helo_stream_bytes);
+				if (cont) {
+					LOG_APP("strm s while the next track was streaming: continuing it from byte %u", (unsigned)helo_stream_bytes);
+				} else {
+					LOG_APP("strm s while the next track was streaming: streaming the next track again");
+					stream_next_discard();
+				}
+				lookahead = LA_WAIT_NEXT;
+				la_next_done = false;
+			}
+			bool next = lookahead == LA_WAIT_NEXT && !local;
 
 			autostart = strm->autostart - '0';
 
@@ -484,12 +506,12 @@ static void process_strm(u8_t *pkt, int len) {
 				autostart -= 2;
 			} else {
 				if (next) {
-					stream_next_begin();
+					if (!cont) stream_next_begin();
 					lookahead = LA_NEXT;
 					la_next_done = false;
 					LOG_APP("look-ahead: streaming the next track while the current one decodes");
 				} else {
-					if (lookahead == LA_NEXT) stream_next_discard(); // not expected: LMS sends one next track
+					LOG_APP("strm s (look-ahead %s)", lookahead == LA_WAIT_NEXT ? "waiting" : "idle");
 					lookahead = LA_IDLE;
 					la_cur_done = false;
 					stmd_held = false;
@@ -869,6 +891,11 @@ static void slimproto_run() {
 					if (decode.state == DECODE_ERROR) LOG_APP("look-ahead: decode error, playing on with the next track");
 					_handover = true;
 				} else {
+					if (stream_lookahead_enabled()) {
+						LOG_APP("track decoded (%s), no next track streaming (look-ahead %s)",
+								decode.state == DECODE_ERROR ? "error" : "complete",
+								lookahead == LA_WAIT_NEXT ? "waiting for it" : "idle");
+					}
 					// with look-ahead STMd was already sent
 					if (decode.state == DECODE_COMPLETE && lookahead != LA_WAIT_NEXT) stmd_held = true;
 					if (decode.state == DECODE_ERROR)    _sendSTMn = true;
@@ -1011,16 +1038,21 @@ static void slimproto_run() {
 			if (_sendDSCO && REMOTE_DISCONNECT == disconnect_code) send_stream_cut_to_app(status.stream_bytes);
 #endif
 			if (_sendSTMs) {
+				LOG_APP("track started (STMs)");
 				sendSTAT("STMs", 0);
 #ifdef ANDROID
 				// A new track has started playing - let the app update its MediaSession
 				send_playback_state_to_app();
 #endif
 			}
-			if (_sendSTMd) sendSTAT("STMd", 0);
+			if (_sendSTMd) {
+				LOG_APP("decoder ready for the next track (STMd)");
+				sendSTAT("STMd", 0);
+			}
 			if (_sendSTMt) sendSTAT("STMt", 0);
 			if (_sendSTMl) sendSTAT("STMl", 0);
 			if (_sendSTMu) {
+				LOG_APP("playback ran out (STMu)");
 				sendSTAT("STMu", 0);
 #ifdef ANDROID
 				// Playback ran out (end of the playlist): the app would otherwise still think it plays, and keep

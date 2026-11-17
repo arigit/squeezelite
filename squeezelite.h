@@ -610,6 +610,7 @@ void stream_sock(u32_t ip, u16_t port, bool use_ssl, bool use_ogg, const char *h
 bool stream_disconnect(void);
 void stream_lookahead(size_t max_size);
 bool stream_lookahead_enabled(void);
+bool stream_next_continue(u64_t from_bytes);
 void stream_next_begin(void);
 void stream_handover(void);
 bool stream_next_discard(void);
