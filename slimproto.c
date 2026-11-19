@@ -433,6 +433,12 @@ static void process_strm(u8_t *pkt, int len) {
 			LOCK_O;
 			output.state = jiffies ? OUTPUT_START_AT : OUTPUT_RUNNING;
 			output.start_at = jiffies;
+			// The output may have stopped calling back while paused (the Android output closes): its last update is
+			// from before the pause, and the STMr below would count the pause as played. Nothing played since.
+			output.updated = gettime_ms();
+			status.updated = output.updated;
+			status.frames_played = output.frames_played_dmp;
+			status.device_frames = output.device_frames;
 			UNLOCK_O;
 
 			LOG_DEBUG("unpause at: %u now: %u", jiffies, gettime_ms());
