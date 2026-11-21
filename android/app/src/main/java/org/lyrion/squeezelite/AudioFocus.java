@@ -35,55 +35,81 @@ import android.os.SystemClock;
  */
 public class AudioFocus {
     private static final long RECLAIM_DELAY = 1500;
-    // A loss later than this into a car session is another app
-    private static final long STARTUP_WINDOW = 60000;
+    private static final long RECLAIM_RETRY_DELAY = 500;
+    private static final long RECLAIM_TIMEOUT = 10000;
+    // A loss later than this into a car session is another app. Android Auto takes focus as the session
+    // starts (seen: at once, and again 9s later); a podcast app started after this pauses the player.
+    private static final long STARTUP_WINDOW = 15000;
 
     private final Context context;
     private final AudioManager audioManager;
     private final Library lib;
     private final CarConnection carConnection;
+    private final boolean resumeOnCarConnection;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private AudioFocusRequest request = null;
     private boolean haveFocus = false;
     private boolean pausedByLoss = false;
-    private boolean reclaimed = false;
+    private boolean suppressAutoResume = false;
+    private long reclaimDeadline = 0;
 
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
     private final Runnable reclaimTask = this::reclaim;
 
-    public AudioFocus(Context context, Library lib, CarConnection carConnection) {
+    public AudioFocus(Context context, Library lib, CarConnection carConnection, boolean resumeOnCarConnection) {
         this.context = context.getApplicationContext();
         this.audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         this.lib = lib;
         this.carConnection = carConnection;
+        this.resumeOnCarConnection = resumeOnCarConnection;
+        if (null!=carConnection) {
+            carConnection.setOnSessionStarted(this::onCarConnectionStarted);
+        }
     }
 
     private void onFocusChange(int focusChange) {
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
+                handler.removeCallbacks(callCheck);
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
-                if (pausedByLoss) {
+                reclaimDeadline = 0;
+                if (pausedByLoss && !suppressAutoResume) {
                     pausedByLoss = false;
                     lib.play();
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 haveFocus = false;
+                // Only resumed later if it was playing: 'pause 0' on a stopped player starts its playlist from the top
+                boolean wasPlaying = lib.isPlaying();
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
-                pausedByLoss = mayBeCarStarting();
+                pausedByLoss = wasPlaying && !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
-                    handler.postDelayed(reclaimTask, RECLAIM_DELAY);
+                    scheduleReclaim(RECLAIM_DELAY);
                 } else {
                     Utils.debug("Another player has taken over");
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = true;
-                lib.pause();
+                // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
+                // stopped player starts its playlist from the top. Not after a call: whether to resume then is the
+                // controller's setting (Lyrion's "after a call"), and resuming here ignored it.
+                if (lib.isPlaying()) {
+                    boolean call = inCall();
+                    pausedByLoss = !suppressAutoResume && !call;
+                    Utils.debug("Transient loss, audio mode " + audioManager.getMode() + (call ? ": a call, not resuming after it" : ""));
+                    lib.pause();
+                    if (pausedByLoss) {
+                        // Telecom requests focus and sets the call mode at about the same time (an outgoing call),
+                        // so the mode can still be normal when the loss arrives: look again shortly after.
+                        for (long delay : CALL_CHECK_DELAYS) {
+                            handler.postDelayed(callCheck, delay);
+                        }
+                    }
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself
@@ -93,10 +119,24 @@ public class AudioFocus {
         }
     }
 
-    private boolean mayBeCarStarting() {
-        if (reclaimed) {
-            return false;
+    private static final long[] CALL_CHECK_DELAYS = {500, 1500, 3000};
+    private final Runnable callCheck = this::checkCall;
+
+    private void checkCall() {
+        if (pausedByLoss && inCall()) {
+            pausedByLoss = false;
+            Utils.debug("Paused for a call (audio mode " + audioManager.getMode() + "), not resuming after it");
         }
+    }
+
+    private boolean inCall() {
+        int mode = audioManager.getMode();
+        return AudioManager.MODE_RINGTONE==mode || AudioManager.MODE_IN_CALL==mode ||
+                AudioManager.MODE_IN_COMMUNICATION==mode ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && AudioManager.MODE_CALL_SCREENING==mode);
+    }
+
+    private boolean mayBeCarStarting() {
         if (null==carConnection) {
             return true;
         }
@@ -105,27 +145,52 @@ public class AudioFocus {
         return 0==since || (SystemClock.elapsedRealtime()-since)<STARTUP_WINDOW;
     }
 
+    private void onCarConnectionStarted() {
+        if (resumeOnCarConnection && pausedByLoss) {
+            scheduleReclaim(RECLAIM_DELAY);
+        }
+    }
+
+    private void scheduleReclaim(long delay) {
+        if (0==reclaimDeadline) {
+            reclaimDeadline = SystemClock.elapsedRealtime()+RECLAIM_TIMEOUT;
+        }
+        handler.removeCallbacks(reclaimTask);
+        handler.postDelayed(reclaimTask, delay);
+    }
+
     private void reclaim() {
         if (!pausedByLoss) {
             return;
         }
+        long version = null==carConnection ? 0 : carConnection.queryVersion();
         new Thread(() -> {
             int state = CarConnection.state(context);
-            handler.post(() -> onCarConnectionState(state));
+            handler.post(() -> onCarConnectionState(state, version));
         }).start();
     }
 
-    private void onCarConnectionState(int state) {
+    private void onCarConnectionState(int state, long version) {
         if (!pausedByLoss) {
             return;
         }
-        pausedByLoss = false;
-        if (CarConnection.NOT_CONNECTED == state) {
+        if (state<=CarConnection.NOT_CONNECTED || (null!=carConnection && version!=carConnection.queryVersion())) {
+            long now = SystemClock.elapsedRealtime();
+            if (now<reclaimDeadline) {
+                handler.postDelayed(reclaimTask, Math.min(RECLAIM_RETRY_DELAY, reclaimDeadline-now));
+                return;
+            }
+            pausedByLoss = false;
+            reclaimDeadline = 0;
             Utils.debug("Focus lost to another app");
             return;
         }
+        pausedByLoss = false;
+        reclaimDeadline = 0;
+        if (null!=carConnection) {
+            carConnection.markConnected();
+        }
         Utils.debug("Focus lost as car connected (" + state + ") - reclaim");
-        reclaimed = true;
         acquire();
         if (haveFocus) {
             lib.play();
@@ -134,8 +199,17 @@ public class AudioFocus {
 
     public void request() {
         pausedByLoss = false;
+        suppressAutoResume = false;
+        reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         acquire();
+    }
+
+    public void cancelPendingResume() {
+        pausedByLoss = false;
+        suppressAutoResume = true;
+        reclaimDeadline = 0;
+        handler.removeCallbacks(reclaimTask);
     }
 
     private void acquire() {
@@ -177,6 +251,7 @@ public class AudioFocus {
 
     public void release() {
         pausedByLoss = false;
+        reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         releaseFocus();
     }
