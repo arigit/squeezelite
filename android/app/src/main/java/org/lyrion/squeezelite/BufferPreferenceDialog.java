@@ -32,6 +32,9 @@ import com.google.android.material.slider.Slider;
 
 /** Buffer size choices, with the dynamic buffer's maximum size slider shown while that one is selected. */
 public class BufferPreferenceDialog extends PreferenceDialogFragmentCompat {
+    // The slider's positions, in MB
+    private static final int[] MAX_SIZES = {128, 256, 512};
+
     private RadioGroup sizes;
     private View dynamicOptions;
     private TextView maxSizeLabel;
@@ -73,7 +76,13 @@ public class BufferPreferenceDialog extends PreferenceDialogFragmentCompat {
             max = Integer.parseInt(pref.getSharedPreferences().getString(Prefs.LOOKAHEAD_MAX_KEY, Prefs.DEFAULT_LOOKAHEAD_MAX));
         } catch (NumberFormatException ignored) {
         }
-        maxSize.setValue(max >= 512 ? 512 : 256);
+        int position = 0;
+        for (int i = 1; i < MAX_SIZES.length; ++i) {
+            if (max >= MAX_SIZES[i]) {
+                position = i;
+            }
+        }
+        maxSize.setValue(position);
 
         sizes.setOnCheckedChangeListener((group, id) -> updateDynamicOptions());
         maxSize.addOnChangeListener((slider, value, fromUser) -> updateDynamicOptions());
@@ -87,7 +96,11 @@ public class BufferPreferenceDialog extends PreferenceDialogFragmentCompat {
 
     private void updateDynamicOptions() {
         dynamicOptions.setVisibility(Prefs.STREAM_BUFFER_DYNAMIC.equals(selectedValue()) ? View.VISIBLE : View.GONE);
-        maxSizeLabel.setText(getString(R.string.lookahead_max, (int) maxSize.getValue()));
+        maxSizeLabel.setText(getString(R.string.lookahead_max, selectedMaxSize()));
+    }
+
+    private int selectedMaxSize() {
+        return MAX_SIZES[Math.round(maxSize.getValue())];
     }
 
     @Override
@@ -98,7 +111,7 @@ public class BufferPreferenceDialog extends PreferenceDialogFragmentCompat {
         }
         BufferPreference pref = (BufferPreference) getPreference();
         // The maximum first: the summary shown for the dynamic buffer includes it
-        pref.getSharedPreferences().edit().putString(Prefs.LOOKAHEAD_MAX_KEY, String.valueOf((int) maxSize.getValue())).apply();
+        pref.getSharedPreferences().edit().putString(Prefs.LOOKAHEAD_MAX_KEY, String.valueOf(selectedMaxSize())).apply();
         if (pref.callChangeListener(value)) {
             pref.setValue(value);
         }
