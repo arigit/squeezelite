@@ -25,6 +25,13 @@
 #include "squeezelite.h"
 #include "slimproto.h"
 
+#if LINUX
+#include <sys/ioctl.h>
+#ifndef SIOCOUTQ
+#define SIOCOUTQ TIOCOUTQ // bytes in a TCP socket's send queue the peer hasn't acknowledged yet
+#endif
+#endif
+
 static log_level loglevel;
 
 #define SQUEEZENETWORK "mysqueezebox.com:3483"
@@ -98,6 +105,29 @@ static bool la_cur_done, la_next_done; // the decoder's / the next track's downl
 // seconds of a track restreamed on resume after a pause (_JumpOrResume). STMd then queued the next song, and the
 // real STMs made LMS drop the playing one and take the next as started: one track ahead of the audio from then on.
 static bool stmd_held;
+
+// A track start (STMs) or "ready for the next track" (STMd) sent while the connection was already dead (e.g. mobile
+// data gone silent just before a track change) never reaches LMS, and its reconnect handling (playerReconnect ->
+// ContinuePlay) only looks at the stream's byte count: it keeps showing the previous track and never sends the next
+// one, so playback stops at the end of the current track. Once nothing is left in the socket's send queue, the
+// server's TCP stack has acknowledged them. If the connection ends before that, they are sent again after the
+// reconnect, unless LMS sends a stream command first (then it is already moving on, and a repeated STMs could make
+// it drop the playing song).
+static bool stms_unacked, stmd_unacked;
+static bool resend_stms, resend_stmd;
+static u32_t resend_at;
+
+static void check_acked(void) {
+#if LINUX && defined(SIOCOUTQ)
+	int queued;
+	if ((stms_unacked || stmd_unacked) && ioctl(sock, SIOCOUTQ, &queued) == 0 && queued == 0) {
+		stms_unacked = stmd_unacked = false;
+	}
+#else
+	stms_unacked = stmd_unacked = false; // can't tell: never resend
+#endif
+}
+
 static struct {
 	bool codec;
 	u8_t format, sample_size, sample_rate, channels, endianness;
@@ -355,6 +385,16 @@ static void process_strm(u8_t *pkt, int len) {
 	struct strm_packet *strm = (struct strm_packet *)pkt;
 
 	LOG_DEBUG("strm command %c", strm->command);
+
+	if (strm->command != 't') {
+		// LMS acted (e.g. the next track's strm s answers STMd): it has what was sent before, or it no longer matters
+		stms_unacked = stmd_unacked = false;
+	}
+	if (resend_at && strm->command != 't') {
+		LOG_APP("not sending STMs/STMd again: LMS sent strm %c after the reconnect", strm->command);
+		resend_at = 0;
+		resend_stms = resend_stmd = false;
+	}
 
 	switch(strm->command) {
 	case 't':
@@ -1046,6 +1086,7 @@ static void slimproto_run() {
 			if (_sendSTMs) {
 				LOG_APP("track started (STMs)");
 				sendSTAT("STMs", 0);
+				stms_unacked = true;
 #ifdef ANDROID
 				// A new track has started playing - let the app update its MediaSession
 				send_playback_state_to_app();
@@ -1054,6 +1095,7 @@ static void slimproto_run() {
 			if (_sendSTMd) {
 				LOG_APP("decoder ready for the next track (STMd)");
 				sendSTAT("STMd", 0);
+				stmd_unacked = true;
 			}
 			if (_sendSTMt) sendSTAT("STMt", 0);
 			if (_sendSTMl) sendSTAT("STMl", 0);
@@ -1066,6 +1108,22 @@ static void slimproto_run() {
 				send_playback_state_to_app();
 #endif
 			}
+			if (resend_at && now - resend_at < 0x80000000) {
+				// after a reconnect, LMS sent no stream command: it didn't get them
+				resend_at = 0;
+				if (resend_stms) {
+					LOG_APP("sending STMs again: not acknowledged before the connection dropped");
+					sendSTAT("STMs", 0);
+					stms_unacked = true;
+				}
+				if (resend_stmd) {
+					LOG_APP("sending STMd again: not acknowledged before the connection dropped");
+					sendSTAT("STMd", 0);
+					stmd_unacked = true;
+				}
+				resend_stms = resend_stmd = false;
+			}
+			check_acked();
 			if (_sendSTMo) sendSTAT("STMo", 0);
 			if (_sendSTMn) sendSTAT("STMn", 0);
 			if (_sendRESP) sendRESP(header, header_len);
@@ -1302,10 +1360,21 @@ void slimproto(log_level level, char *server, u8_t mac[6], const char *name, con
 #ifdef ANDROID
 			send_connection_state_to_app(get_ip_str(&serv_addr));
 #endif
+			if (reconnect && (resend_stms || resend_stmd)) {
+				resend_at = gettime_ms() + 1500;
+			}
 			slimproto_run();
 #ifdef ANDROID
 			send_connection_state_to_app("");
 #endif
+			// sent but not acknowledged by the server: send them again after the reconnect (not to another server)
+			resend_stms = stms_unacked && !new_server;
+			resend_stmd = stmd_unacked && !new_server;
+			stms_unacked = stmd_unacked = false;
+			resend_at = 0;
+			if (resend_stms || resend_stmd) {
+				LOG_APP("connection dropped before LMS acknowledged %s%s", resend_stms ? "STMs " : "", resend_stmd ? "STMd" : "");
+			}
 
 			if (!reconnect) {
 				reconnect = true;
