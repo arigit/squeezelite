@@ -322,3 +322,24 @@ JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_start(JNIEnv *env, jo
 JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_stop(JNIEnv * env, jobject jobj) {
 	slimproto_stop();
 }
+
+// The audio output is disconnecting (e.g. a Bluetooth headset out of range): Android moves the audio to the speaker
+// about a second later, and the pause the app asks LMS for can take that long to come back over mobile data. Stop the
+// output now, as LMS's pause does ('strm p'); LMS's pause then finds it stopped, and its unpause starts it again.
+JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_stopOutputNow(JNIEnv * env, jobject jobj) {
+	bool stopped = false;
+	if (!obj) {
+		return; // not started
+	}
+	mutex_lock(outputbuf->mutex);
+	if (output.state == OUTPUT_RUNNING) {
+		output.state = OUTPUT_STOPPED;
+		output.stop_time = gettime_ms();
+		stopped = true;
+	}
+	mutex_unlock(outputbuf->mutex);
+	if (stopped) {
+		send_log_to_app("output stopped at once (audio output disconnecting)");
+		send_playback_state_to_app();
+	}
+}

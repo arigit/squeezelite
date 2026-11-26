@@ -542,6 +542,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
                     return;
                 }
                 Utils.info("Audio output disconnected, pausing");
+                // Android switches to the speaker about a second after this; LMS's pause may take longer to arrive
+                lib.stopOutput();
                 pausePlayback();
             }
         };

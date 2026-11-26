@@ -438,6 +438,13 @@ public class Library {
         sendCommand(PAUSE_COMMAND);
     }
 
+    // Silences the player at once, before LMS's pause comes back (see stopOutputNow in android.c)
+    public void stopOutput() {
+        if (playing) {
+            stopOutputNow();
+        }
+    }
+
     public void playPause() {
         sendCommand(TOGGLE_PLAY_PAUSE_COMMAND);
     }
@@ -485,4 +492,5 @@ public class Library {
 
     private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer, int lookaheadMax, int openSlEs);
     private native void stop();
+    private native void stopOutputNow();
 }
