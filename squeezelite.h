@@ -589,7 +589,10 @@ struct streamstate {
 	u32_t meta_left;
 	bool  meta_send;
 	bool next_pending; // look-ahead: the data now received is the next track's, the decoder's track has fully arrived
+	unsigned disconnect_connection; // slimproto_connections when the stream ended
 };
+
+extern volatile unsigned slimproto_connections; // connections to the server so far (slimproto.c)
 
 // Look-ahead events: also to the app's log on Android (player.log in debug builds), which gets errors only otherwise
 #ifdef ANDROID

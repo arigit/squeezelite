@@ -142,6 +142,7 @@ static void lookahead_reset(void) {
 	stmd_held = false;
 }
 u32_t new_server;
+volatile unsigned slimproto_connections;
 char *new_server_cap;
 #define PLAYER_NAME_LEN 64
 char player_name[PLAYER_NAME_LEN + 1] = "";
@@ -868,6 +869,9 @@ static void slimproto_run() {
 			decode_state _decode_state;
 			disconnect_code disconnect_code;
 #ifdef ANDROID
+			unsigned disconnect_connection = 0;
+#endif
+#ifdef ANDROID
 			unsigned _underruns, _underrun_frames;
 #endif
 			static char header[MAX_HEADER];
@@ -887,6 +891,9 @@ static void slimproto_run() {
 						
 			if (stream.state == DISCONNECT) {
 				disconnect_code = stream.disconnect;
+#ifdef ANDROID
+				disconnect_connection = stream.disconnect_connection;
+#endif
 				stream.state = STOPPED;
 				_sendDSCO = true;
 				if (stream.next_pending) {
@@ -1080,8 +1087,22 @@ static void slimproto_run() {
 			if (_sendDSCO) sendDSCO(disconnect_code);
 #ifdef ANDROID
 			// The stream broke off (e.g. the network changed). Reported now that LMS is reachable again: DSCO is only
-			// sent while connected.
-			if (_sendDSCO && REMOTE_DISCONNECT == disconnect_code) send_stream_cut_to_app(status.stream_bytes);
+			// sent while connected. The app then has LMS stream it again from the position ('time +0'). Not if this
+			// connection to LMS came after the cut and the player is playing: LMS's reconnect handling (ContinuePlay)
+			// already streams it again from the bytes received, and a jump arriving around the reconnect could
+			// restart the track at 0:00 or skip to the next one. A paused player still needs it: after a slow
+			// reconnect LMS stopped it, and unpausing then played the track from the start.
+			if (_sendDSCO && REMOTE_DISCONNECT == disconnect_code) {
+				bool playing;
+				LOCK_O;
+				playing = output.state == OUTPUT_RUNNING;
+				UNLOCK_O;
+				if (disconnect_connection != slimproto_connections && playing) {
+					LOG_APP("stream cut off before the reconnect: LMS streams it again itself");
+				} else {
+					send_stream_cut_to_app(status.stream_bytes);
+				}
+			}
 #endif
 			if (_sendSTMs) {
 				LOG_APP("track started (STMs)");
@@ -1330,6 +1351,7 @@ void slimproto(log_level level, char *server, u8_t mac[6], const char *name, con
 			socklen_t len;
 
 			LOG_INFO("connected");
+			slimproto_connections++;
 
 			var_cap[0] = '\0';
 			failed_connect = 0;

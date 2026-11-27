@@ -224,6 +224,7 @@ static bool running = true;
 static void _disconnect(stream_state state, disconnect_code disconnect) {
 	stream.state = state;
 	stream.disconnect = disconnect;
+	stream.disconnect_connection = slimproto_connections;
 #if USE_LIBOGG
 	if (ogg.active) {
 		OG(&ogg.dl, stream_clear, &ogg.state);
