@@ -61,7 +61,6 @@ public class CarConnection {
     private ContentObserver observer = null;
     private BroadcastReceiver receiver = null;
     private Runnable onSessionStarted = null;
-    private Runnable onSessionConnected = null;
     private boolean seenConnected = false;
     private boolean playing = false;
     // 0 if no session is running
@@ -94,15 +93,11 @@ public class CarConnection {
         this.onSessionStarted = onSessionStarted;
     }
 
-    public void setOnSessionConnected(Runnable onSessionConnected) {
-        this.onSessionConnected = onSessionConnected;
-    }
-
     void markConnected() {
         onState(++queryNumber, 2, false);
     }
 
-    private void markConnected(boolean transition) {
+    private void sessionConnected() {
         if (null==observer) {
             return;
         }
@@ -111,9 +106,6 @@ public class CarConnection {
             connectedSince = SystemClock.elapsedRealtime();
             if (null!=onSessionStarted) {
                 onSessionStarted.run();
-            }
-            if (transition && null!=onSessionConnected) {
-                onSessionConnected.run();
             }
         }
         handler.removeCallbacks(confirmTask);
@@ -205,7 +197,7 @@ public class CarConnection {
             return;
         }
         if (CarConnectionState.INITIAL_CONNECTED==action || CarConnectionState.CONNECTED==action) {
-            markConnected(CarConnectionState.CONNECTED==action);
+            sessionConnected();
         } else if (CarConnectionState.DISCONNECTED==action) {
             Utils.info("Android Auto session ended");
             seenConnected = false;
@@ -220,7 +212,7 @@ public class CarConnection {
             handler.removeCallbacks(confirmTask);
             handler.postDelayed(confirmTask, CONFIRM_DELAY);
         } else if (state>NOT_CONNECTED) {
-            markConnected(false);
+            sessionConnected();
         } else if (UNKNOWN==state || (NOT_CONNECTED==state && !seenConnected)) {
             schedulePoll();
         }

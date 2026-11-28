@@ -48,8 +48,6 @@
     <string name="android_auto">Android Auto</string>
     <string name="pause_on_android_auto_disconnect">Pause player when Android Auto disconnects</string>
     <string name="pause_on_android_auto_disconnect_summary">Pause playback when an Android Auto session ends. If Android Auto auto-start is enabled, the player stops instead</string>
-    <string name="pause_on_android_auto_connect">Pause player when Android Auto connects</string>
-    <string name="pause_on_android_auto_connect_summary">Pause player when an Android Auto session starts, and leave it paused when Android Auto takes the audio focus as it starts</string>
     <string name="send_track_details">Send track details</string>
     <string name="send_track_details_summary">Send details of the track being played (title, artist, album, artwork) to the connected device, so that it can display these. Also used for the lock screen and Android Auto</string>
     <string name="use_bt_id">Use ID and name</string>

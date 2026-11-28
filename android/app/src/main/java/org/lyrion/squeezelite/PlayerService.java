@@ -91,7 +91,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
     // A pause key this soon after Android Auto connects is ignored, unless pausing on connect: the car or Android
     // Auto sends one (seen 0.4-15 s after connect, 2026-11-04..06), which paused what a controller had just resumed.
     private static final long CAR_CONNECT_PAUSE_WINDOW_MS = 20000;
-    private boolean pauseOnAndroidAutoConnect = false;
     // When Lyrion last started the player for a car connect, 0 if never
     private long carConnectingAt = 0;
     private boolean started = false;
@@ -322,15 +321,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
             updateNotification();
         }
         SharedPreferences prefs = Prefs.get(this);
-        // Separate settings: e.g. a controller (Lyrion) may start playback as the car connects, which needs Android
-        // Auto's focus grab at startup reclaimed, but playback still paused when the car disconnects
-        pauseOnAndroidAutoConnect = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
         AndroidAutoDisconnectAction disconnectAction = AndroidAutoDisconnectAction.forSettings(
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
                 prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
         boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
         // Audio focus needs it too, to tell Android Auto starting up from another app taking focus
-        if (useAudioFocus || pauseOnAndroidAutoConnect || AndroidAutoDisconnectAction.NONE!=disconnectAction) {
+        if (useAudioFocus || AndroidAutoDisconnectAction.NONE!=disconnectAction) {
             carConnection = new CarConnection(this, () -> {
                 if (AndroidAutoDisconnectAction.STOP==disconnectAction) {
                     stopForegroundService();
@@ -338,12 +334,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
                     pausePlayback();
                 }
             });
-            if (pauseOnAndroidAutoConnect) {
-                carConnection.setOnSessionConnected(this::pausePlayback);
-            }
         }
         if (useAudioFocus) {
-            audioFocus = new AudioFocus(this, lib, carConnection, !pauseOnAndroidAutoConnect);
+            audioFocus = new AudioFocus(this, lib, carConnection);
         }
         // After AudioFocus has set its session start callback
         if (null!=carConnection) {
@@ -459,12 +452,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    // Android Auto has just connected (or is connecting), and pausing on connect is off
+    // Android Auto has just connected (or is connecting)
     private boolean carStartingUp() {
         CarConnection connection = carConnection;
-        if (pauseOnAndroidAutoConnect) {
-            return false;
-        }
         if (carConnectingAt > 0 && SystemClock.elapsedRealtime() - carConnectingAt < CAR_CONNECT_PAUSE_WINDOW_MS) {
             return true;
         }
